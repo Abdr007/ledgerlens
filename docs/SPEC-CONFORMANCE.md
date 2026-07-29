@@ -1,0 +1,129 @@
+# Spec Conformance Matrix
+
+Every requirement extracted verbatim from **LedgerLens Build Spec.pdf** (8 pages).
+Each row is verified in `AUDIT.md`. Nothing here is optional.
+
+## §2 Architecture — the 8 stages
+
+| # | Requirement | Where implemented |
+|---|---|---|
+| 1 | Drag-and-drop upload → POST `/v1/documents`; **SHA-256 file hash = idempotency key** (same file twice → same record, no double processing) | `routers/documents.py`, `core/files.py`, `pipeline/orchestrator.py` |
+| 2 | **Routing gate — Claude Haiku 4.5**: digital-text PDF vs scanned/photo + doc type (invoice / receipt / contract). Cost-aware model routing | `pipeline/route.py` |
+| 3a | **Text lane** — PyMuPDF embedded text. Free, instant, zero tokens | `pipeline/textlane.py` |
+| 3b | **Vision lane** — Claude Sonnet 4.6 vision reads scans, tables, handwriting | `pipeline/extract.py` |
+| 4 | **Structured extraction** — Claude *tool use* + Pydantic v2. Schema-forced. Nulls allowed, **invention forbidden**. Failed validation → error fed back → **max 2 self-correction retries** | `pipeline/extract.py` |
+| 5 | **Deterministic validation (pure Python — never an LLM)**: line items sum, subtotal+tax=total, 5% UAE VAT tolerance, date sanity. Fail → `NEEDS_REVIEW`, never auto-commit | `pipeline/validate.py` |
+| 6 | **Anomaly engine (pandas, explainable)**: fuzzy duplicates (rapidfuzz, vendor + amount within 1% + date within 7d), per-vendor amount z-score > 2, unusual payment terms, round-number bias. Every flag carries **severity + plain-English reason** | `pipeline/anomaly.py` |
+| 7 | **Ledger — Postgres**: `documents`, `extractions`, `anomalies`, `audit_log` (append-only), `failed_jobs`. `UNIQUE(file_hash)` + transactions everywhere | `models/tables.py`, `core/db.py` |
+| 8 | Mission-control UI · Langfuse observability on every LLM call · n8n automation showcase | `apps/web/`, `core/tracing.py`, `automation/n8n/` |
+
+## §5 Repository layout — must match exactly
+
+```
+ledgerlens/
+  apps/web/            apps/api/app/{routers,pipeline,models,core}
+  apps/api/tests/      automation/n8n/     infra/     eval/
+  AUDIT.md  README.md  .env.example
+```
+
+## §6 Futuristic UI
+
+| Requirement | Status |
+|---|---|
+| Near-black navy base `#0a0e1a`, glassmorphism panels, single electric accent cyan `#22d3ee` | **Deviation — see D-1 below.** Near-black *violet* base `#07060d`, chamfered solid panels, single electric accent acid-lime `#c8ff2f`. `globals.css` `@theme` tokens; `.panel` utility |
+| Inter/Geist font, subtle grid background, glow on active elements, **no rainbow gradients** | Geist via `next/font`; `.backdrop-grid`; `.glow-*`; no rainbow gradients — one accent hue only |
+| Full-width drag-drop hero | `components/pipeline/dropzone.tsx` |
+| 6-stage pipeline **Ingest → Route → Extract → Validate → Screen → Ledger**; nodes pulse while active, green on pass, red on flag | `components/pipeline/pipeline-rail.tsx` |
+| **Driven by real backend status polling (`GET /v1/documents/{id}/status`), not faked timers** | `app/page.tsx` poll loop; states projected from `audit_log` |
+| Extracted fields *type themselves* into a result card as they arrive | `components/pipeline/result-card.tsx` |
+| KPI cards (docs processed, avg latency, est. cost, anomalies open) with animated counters | `components/dashboard/kpi-cards.tsx` |
+| Vendor-spend bar chart (Recharts) | `components/dashboard/vendor-chart.tsx` |
+| Anomaly queue as severity-glowed cards, each with plain-English reason + Approve/Reject writing back to Postgres | `components/dashboard/anomaly-queue.tsx` → `POST /v1/anomalies/{id}/resolve` |
+| 'Audit Trail' drawer showing the append-only event log per document | `components/dashboard/audit-drawer.tsx` |
+
+### D-1 — Deliberate deviation from the §6 palette
+
+**What changed.** The spec names an exact palette: navy `#0a0e1a`, cyan `#22d3ee`,
+glassmorphism (backdrop blur), rounded panels. LedgerLens instead ships
+violet-black `#07060d`, acid-lime `#c8ff2f`, solid chamfered panels and a
+scanline texture — no blur anywhere.
+
+**Why.** This build is one of three portfolio projects shipped in the same
+window. The spec's literal palette is a widely-used one, and it collided
+token-for-token with a sibling project (six identical hex values). Two
+portfolio pieces that look like the same template damage both; a reviewer reads
+it as one template reskinned, not two systems built. Departing from a *styling*
+instruction to preserve the artefact's actual purpose is the right trade.
+Approved by the project owner before implementation.
+
+**What was preserved.** Every stated *intent* behind §6 holds:
+
+| §6 intent | Held? |
+|---|---|
+| Near-black base, dark mission-control feel | Yes — `#07060d` is darker than `#0a0e1a` |
+| Exactly ONE electric accent | Yes — `#c8ff2f`, used nowhere decoratively |
+| No rainbow gradients | Yes — no multi-hue gradient exists in the stylesheet |
+| Subtle grid background | Yes — `.backdrop-grid`, unchanged in structure |
+| Glow on active elements | Yes — `.glow-accent/pass/warn/flag` |
+| Geist / Geist Mono typography | Yes — unchanged, now mono-forward for numerals |
+| Semantic state colours stay semantic | Yes — pass/warn/flag are state-only, never decoration |
+
+**Scope.** Presentation layer only: `globals.css` tokens plus the class names
+in `apps/web/src/components/`. No API contract, schema, pipeline stage, prompt,
+validation rule or test changed. Every other §6 row in the table above — the
+six named stages, real status polling, self-typing result card, KPI counters,
+Recharts vendor chart, anomaly queue, audit drawer — is met exactly as written.
+
+## §7 Production quality bar
+
+| Category | Requirement |
+|---|---|
+| Race conditions | `UNIQUE(file_hash)` + `INSERT … ON CONFLICT`; all multi-step writes in DB transactions; status transitions `PENDING→PROCESSING→DONE/NEEDS_REVIEW` enforced with optimistic checks |
+| Idempotency | Re-uploading an identical file returns the existing record; retried API calls never duplicate rows |
+| Error handling | Every external call (Claude, DB) wrapped with timeout + exponential-backoff retry (**3 attempts**); failures land in `failed_jobs` with a reason; API returns **typed error responses, never stack traces** |
+| Security | File type + size whitelist (**PDF/PNG/JPG, ≤10 MB**); prompt-injection hardening — document content is data, never instructions, **stated explicitly in the system prompt**; rate limit **10 req/min/IP**; secrets only via env vars; CORS locked to the Vercel domain |
+| Zero warnings | ruff + mypy clean on API; eslint + `tsc --noEmit` clean on web; pytest green; **no console errors in browser** |
+| Evaluation | `eval/` runs the labeled set and prints field-level accuracy |
+
+## §8 Master prompt — additional binding details
+
+- Extraction schema field names, exactly: `vendor`, `invoice_number`, `issue_date`, `due_date`,
+  `line_items[{description, qty, unit_price, amount}]`, `subtotal`, `tax`, `total`, `currency`, `payment_terms`
+- API surface versioned under `/v1`
+- FastAPI Python 3.12 · SQLAlchemy 2 · Pydantic v2 · Anthropic SDK · Langfuse on every LLM call ·
+  slowapi 10/min/IP · CORS locked to web origin · **Dockerfile for Hugging Face Spaces (port 7860)**
+- Auto OpenAPI docs at `/docs`
+- `.env.example` lists `ANTHROPIC_API_KEY`, `DATABASE_URL`, Langfuse keys, `ALLOWED_ORIGIN`
+- `eval/run_eval.py` processes `eval/testset/` and prints **field-level accuracy + anomaly precision/recall**;
+  ship **10 synthetic invoices now, including 2 near-duplicates and 1 inflated amount**, so it runs immediately
+- Seed script loads **30 realistic historical invoices across 6 vendors** so charts and z-scores work on
+  first open, including a **planted near-duplicate pair** so the anomaly demo always fires
+
+## §8 Definition of Done
+
+| ID | Check |
+|---|---|
+| (a) | `ruff check` + `mypy` pass — **zero issues** |
+| (b) | `eslint` + `tsc --noEmit` pass — **zero issues** |
+| (c) | `pytest` green, with tests for validation math, idempotent re-upload, duplicate detection, and **status transitions under two concurrent requests (no race)** |
+| (d) | End-to-end: uploading a sample scanned invoice returns validated structured data and the pipeline UI animates through all stages |
+| (e) | Planted duplicate raises a **HIGH-severity** anomaly with an explanation |
+| (f) | `README.md` with mermaid architecture diagram, local dev (`docker-compose.dev.yml`), and step-by-step **free** deploy: Vercel (web), **GCP Cloud Run always-free (api container, with `gcloud` commands)** AND **Hugging Face Spaces as no-card fallback**, Neon, Langfuse; plus optional `infra/terraform/` module provisioning the Cloud Run service + secret env vars |
+| — | `AUDIT.md` listing **every check with PASS status** |
+
+## §9 Post-build checks (the three that make it genuinely production-grade)
+
+1. Read `AUDIT.md` and rerun each command.
+2. **Kill the network mid-upload** and confirm the doc lands in `failed_jobs` with a reason.
+3. **Upload the same file twice fast (two tabs)** and confirm exactly one record exists.
+
+## §3/§4 Stack and zero-cost deployment
+
+Next.js 15 + TS + Tailwind + shadcn/ui + Framer Motion · FastAPI 3.12 in Docker · Claude Sonnet 4.6
+(vision + tool use) · Claude Haiku 4.5 (routing) · Pydantic v2 + pure-Python rules · pandas + rapidfuzz +
+z-scores · Neon Postgres free · Langfuse cloud free · Vercel Hobby · HF Spaces Docker CPU ·
+GCP Cloud Run always-free as primary API host · Terraform (IaC) module · n8n self-hosted local.
+
+**Signature sentence for interviews:** *"LLMs extract, code verifies. The model never checks its own
+math — a deterministic validation layer does, and anything that fails routes to a human review queue
+instead of the database."*

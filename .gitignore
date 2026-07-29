@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Node
+node_modules/
+.next/
+out/
+.vercel/
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Env & secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Generated artifacts
+eval/testset/**/*.pdf
+eval/testset/**/*.png
+eval/results/
+scripts/_out/
+storage/
+
+# Terraform
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/*.tfvars
+
+# OS
+.DS_Store

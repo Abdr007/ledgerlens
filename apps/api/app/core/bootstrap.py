@@ -1,0 +1,193 @@
+"""Schema bootstrap.
+
+The project deliberately ships no migration tool: the schema is created from the
+ORM metadata and then hardened with raw DDL (the append-only trigger, functional
+indexes). That keeps the free-tier deployment story to a single command while
+still putting the integrity rules *in the database*.
+
+`init_schema` is idempotent and safe to call on every boot. Three properties
+matter once the database is a *hosted* one rather than a container on localhost:
+
+* **It must be cheap when there is nothing to do.** `create_all` plus the DDL
+  loop is ~40 statements, and every statement is a network round trip. Against a
+  database one ocean away that is tens of seconds of start-up on every boot, and
+  a platform start-up probe will kill the container long before it finishes. So
+  a single-round-trip check runs first and skips the whole thing when the schema
+  is already current.
+
+* **It must not open a hole while it runs.** The hardening DDL recreates the
+  append-only trigger with `DROP` then `CREATE`. Between those two statements the
+  audit log is writable. Skipping the DDL entirely when the guard is already
+  installed means the normal boot never opens that window at all.
+
+* **Concurrent boots must not race.** Two replicas starting together could
+  interleave their `DROP`/`CREATE`. The apply path takes a transaction-scoped
+  advisory lock, so they serialise and the loser sees a current schema.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+from sqlalchemy import bindparam, text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+
+from app.core.logging import get_logger
+from app.models.tables import DDL_STATEMENTS, Base
+
+logger = get_logger(__name__)
+
+# Objects created by the raw DDL rather than by the ORM metadata.
+_GUARD_TRIGGER = "trg_audit_log_no_update"
+_GUARD_FUNCTION = "ledgerlens_audit_log_is_append_only"
+_DDL_INDEXES = frozenset({"ix_extractions_vendor_lower"})
+
+# Arbitrary but fixed: the advisory-lock key that serialises schema application
+# across processes. Any constant works as long as every replica uses the same one.
+_SCHEMA_LOCK_KEY = 0x1EDBE12E
+
+_EXPECTED_TABLES = frozenset(Base.metadata.tables)
+_EXPECTED_INDEXES = (
+    frozenset(
+        index.name
+        for table in Base.metadata.tables.values()
+        for index in table.indexes
+        if index.name is not None
+    )
+    | _DDL_INDEXES
+)
+
+# One statement, one round trip: everything needed to decide whether the boot can
+# skip the DDL. Counting rather than listing keeps the result tiny.
+_SCHEMA_PROBE = (
+    text(
+        """
+        SELECT
+          (SELECT count(*) FROM pg_class c
+             JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = current_schema()
+              AND c.relkind = 'r'
+              AND c.relname IN :tables)                       AS tables_present,
+          (SELECT count(*) FROM pg_class c
+             JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = current_schema()
+              AND c.relkind = 'i'
+              AND c.relname IN :indexes)                      AS indexes_present,
+          (SELECT count(*) FROM pg_trigger
+            WHERE tgname = :guard_trigger AND NOT tgisinternal) AS guard_trigger,
+          (SELECT count(*) FROM pg_proc p
+             JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = current_schema()
+              AND p.proname = :guard_function)                AS guard_function
+        """
+    )
+    .bindparams(
+        bindparam("tables", expanding=True),
+        bindparam("indexes", expanding=True),
+    )
+    .columns()
+)
+
+
+async def _schema_is_current(connection: AsyncConnection) -> bool:
+    """True when every table, index and integrity guard is already installed.
+
+    Deliberately conservative: anything missing returns False and the caller runs
+    the full idempotent apply. Adding a table or index therefore heals itself on
+    the next boot without needing a migration.
+    """
+    row = (
+        await connection.execute(
+            _SCHEMA_PROBE,
+            {
+                "tables": list(_EXPECTED_TABLES),
+                "indexes": list(_EXPECTED_INDEXES),
+                "guard_trigger": _GUARD_TRIGGER,
+                "guard_function": _GUARD_FUNCTION,
+            },
+        )
+    ).one()
+    return bool(
+        row.tables_present == len(_EXPECTED_TABLES)
+        and row.indexes_present == len(_EXPECTED_INDEXES)
+        and row.guard_trigger == 1
+        and row.guard_function == 1
+    )
+
+
+async def _apply_schema(connection: AsyncConnection) -> None:
+    """Create tables and apply the hardening DDL. Caller holds the advisory lock."""
+    await connection.run_sync(Base.metadata.create_all)
+    for statement in DDL_STATEMENTS:
+        await connection.execute(text(statement))
+
+
+async def init_schema(engine: AsyncEngine) -> None:
+    """Create tables and apply hardening DDL. Idempotent and safe to run on every boot."""
+    async with engine.connect() as connection:
+        if await _schema_is_current(connection):
+            logger.info("schema_ready", extra={"tables": len(_EXPECTED_TABLES), "applied": False})
+            return
+
+    async with engine.begin() as connection:
+        # Serialise concurrent boots; released automatically when the transaction ends.
+        await connection.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"), {"key": _SCHEMA_LOCK_KEY}
+        )
+        # Re-check under the lock: a replica that raced us may have just finished.
+        if await _schema_is_current(connection):
+            logger.info("schema_ready", extra={"tables": len(_EXPECTED_TABLES), "applied": False})
+            return
+        await _apply_schema(connection)
+
+    logger.info("schema_ready", extra={"tables": len(_EXPECTED_TABLES), "applied": True})
+
+
+async def wait_for_database(
+    engine: AsyncEngine,
+    *,
+    max_attempts: int = 5,
+    initial_delay_s: float = 1.0,
+) -> None:
+    """Block until the database answers, with bounded exponential backoff.
+
+    A serverless Postgres (Neon, Aurora Serverless) suspends its compute when
+    idle and takes several seconds to wake. Without this, the first connection of
+    a cold boot can exceed the driver timeout and the process dies with an opaque
+    error even though the database is perfectly healthy a second later.
+
+    Raises the last error once the attempts are exhausted, so a genuinely
+    unreachable database still fails loudly rather than hanging for ever.
+    """
+    delay = initial_delay_s
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with engine.connect() as connection:
+                await connection.execute(text("SELECT 1"))
+            if attempt > 1:
+                logger.info("database_ready", extra={"attempts": attempt})
+            return
+        except (SQLAlchemyError, OSError) as exc:  # TimeoutError subclasses OSError
+            if attempt == max_attempts:
+                logger.error(
+                    "database_unreachable",
+                    extra={"attempts": attempt, "error": type(exc).__name__},
+                )
+                raise
+            logger.warning(
+                "database_not_ready_retrying",
+                extra={"attempt": attempt, "delay_s": delay, "error": type(exc).__name__},
+            )
+            await asyncio.sleep(delay)
+            delay *= 2
+
+
+async def drop_schema(engine: AsyncEngine) -> None:
+    """Drop every LedgerLens table. Used only by the integration test fixtures."""
+    async with engine.begin() as connection:
+        # The append-only trigger blocks DELETE but not DROP TABLE; remove it first
+        # so a test teardown cannot be tripped up by its own guard rail.
+        await connection.execute(text(f"DROP TRIGGER IF EXISTS {_GUARD_TRIGGER} ON audit_log;"))
+        await connection.run_sync(Base.metadata.drop_all)
+    logger.info("schema_dropped")

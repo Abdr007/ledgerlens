@@ -1,0 +1,71 @@
+# Local development stack: real PostgreSQL + the API container.
+#
+#   docker compose -f infra/docker-compose.dev.yml up --build
+#
+# The web app runs outside the stack (`npm --prefix apps/web run dev`) so the
+# Next.js dev server keeps its fast refresh.
+
+name: ledgerlens
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ledgerlens-postgres
+    environment:
+      POSTGRES_USER: ledgerlens
+      POSTGRES_PASSWORD: ledgerlens
+      POSTGRES_DB: ledgerlens
+      # Deterministic collation so ordering matches Neon in production.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledgerlens -d ledgerlens"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    container_name: ledgerlens-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: dev
+      LOG_LEVEL: INFO
+      PORT: 7860
+      DATABASE_URL: postgresql+asyncpg://ledgerlens:ledgerlens@postgres:5432/ledgerlens
+      ALLOWED_ORIGINS: http://localhost:3000
+      # Absent key -> the deterministic offline engine. The pipeline still runs
+      # end to end; scans route to NEEDS_REVIEW until a key is configured.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_MODE: ${LLM_MODE:-auto}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      # One reverse proxy (compose's own network) in front of the app.
+      TRUSTED_PROXY_COUNT: 0
+    ports:
+      - "7860:7860"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:7860/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    # Defence in depth: the API writes nothing to its own filesystem.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  postgres-data:

@@ -1,0 +1,338 @@
+@import "tailwindcss";
+
+/* ---------------------------------------------------------------------------
+   LedgerLens — "Obsidian & Acid"
+
+   Deliberate deviation from the build spec's §6 palette (#0a0e1a navy + #22d3ee
+   cyan). That palette collided verbatim with a sibling portfolio project, and
+   two projects that look like the same template is worse for a portfolio than
+   one that departs from its brief. The spec's *intent* — dark mission-control,
+   ONE electric accent, restrained, no rainbow gradients — is preserved exactly;
+   only the hue family and the form language move.
+
+   The identity has three axes, all of which differ from the sibling:
+     hue      violet-black + acid lime, not navy + cyan
+     geometry machined bevel cuts and hard 1px edges, not soft rounded glass
+     texture  fine scanlines and corner ticks, not backdrop blur
+--------------------------------------------------------------------------- */
+@theme {
+  --color-base: #07060d;
+  --color-base-raised: #0c0a17;
+  --color-base-sunken: #040308;
+  --color-panel: #100d1e;
+  --color-panel-top: #16122a;
+
+  /* The single electric accent. */
+  --color-accent: #c8ff2f;
+  --color-accent-dim: #6b8f10;
+  --color-accent-glow: rgb(200 255 47 / 0.4);
+
+  --color-ink: #ece9f5;
+  --color-ink-muted: #9a94b4;
+  --color-ink-faint: #625c7c;
+
+  /* State only — never decoration. */
+  --color-pass: #4ade80;
+  --color-flag: #ff3d6e;
+  --color-warn: #ffb703;
+
+  --color-hairline: rgb(154 148 180 / 0.16);
+  --color-hairline-strong: rgb(154 148 180 / 0.3);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+}
+
+:root {
+  color-scheme: dark;
+  /* The machined corner cut, shared by every panel so the silhouette is
+     consistent: top-right and bottom-left are chamfered, the other two are
+     square. Asymmetry reads as engineered rather than merely rounded-off. */
+  --bevel: polygon(
+    0 0,
+    calc(100% - 15px) 0,
+    100% 15px,
+    100% 100%,
+    15px 100%,
+    0 calc(100% - 15px)
+  );
+  --bevel-sm: polygon(
+    0 0,
+    calc(100% - 8px) 0,
+    100% 8px,
+    100% 100%,
+    8px 100%,
+    0 calc(100% - 8px)
+  );
+}
+
+html,
+body {
+  background-color: var(--color-base);
+  color: var(--color-ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  min-height: 100dvh;
+}
+
+/* --------------------------------------------------------------------------
+   Backdrop: a technical grid, one violet wash, and a fine scanline field.
+   No blur anywhere in this design.
+-------------------------------------------------------------------------- */
+.backdrop-grid {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-color: var(--color-base);
+  background-image:
+    radial-gradient(1100px 560px at 50% -12%, rgb(200 255 47 / 0.055), transparent 62%),
+    radial-gradient(760px 460px at 88% 4%, rgb(124 58 237 / 0.11), transparent 60%),
+    linear-gradient(to right, rgb(200 255 47 / 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(200 255 47 / 0.035) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    100% 100%,
+    64px 64px,
+    64px 64px;
+  mask-image: radial-gradient(ellipse 110% 74% at 50% 0%, #000 52%, transparent 100%);
+}
+
+/* CRT-ish scanline field. Very low amplitude — it should register as texture,
+   not as an effect anyone consciously notices. */
+.scanlines {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgb(255 255 255 / 0.022) 0px,
+    rgb(255 255 255 / 0.022) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+/* --------------------------------------------------------------------------
+   Panels: hard-edged, chamfered, solid. `clip-path` removes the border on the
+   cut edges, so contrast does the work a border would — the panel fill is
+   deliberately lighter than the base rather than translucent.
+-------------------------------------------------------------------------- */
+.panel {
+  position: relative;
+  background: linear-gradient(180deg, var(--color-panel-top) 0%, var(--color-panel) 100%);
+  clip-path: var(--bevel);
+}
+
+.panel-hover {
+  transition:
+    background 200ms ease,
+    transform 200ms ease;
+}
+.panel-hover:hover {
+  background: linear-gradient(180deg, #1a1533 0%, #120f22 100%);
+}
+
+/* An acid hairline along the top edge, and a machined tick in the chamfer. */
+.edge-light::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--color-accent-glow) 30%,
+    var(--color-accent-glow) 70%,
+    transparent
+  );
+}
+.edge-light::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 15px;
+  height: 15px;
+  background: linear-gradient(45deg, transparent 49%, var(--color-accent) 49% 52%, transparent 52%);
+  opacity: 0.65;
+}
+
+/* Corner brackets — the HUD tell. */
+.ticks::before,
+.ticks::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-color: var(--color-accent);
+  opacity: 0.5;
+}
+.ticks::before {
+  left: 7px;
+  top: 7px;
+  border-left: 1px solid;
+  border-top: 1px solid;
+}
+.ticks::after {
+  right: 7px;
+  bottom: 7px;
+  border-right: 1px solid;
+  border-bottom: 1px solid;
+}
+
+.bevel {
+  clip-path: var(--bevel);
+}
+.bevel-sm {
+  clip-path: var(--bevel-sm);
+}
+
+/* --------------------------------------------------------------------------
+   Glows — flat rings, no soft blur halo.
+-------------------------------------------------------------------------- */
+.glow-accent {
+  box-shadow:
+    inset 0 0 0 1px rgb(200 255 47 / 0.45),
+    0 0 22px -8px rgb(200 255 47 / 0.7);
+}
+.glow-pass {
+  box-shadow:
+    inset 0 0 0 1px rgb(74 222 128 / 0.4),
+    0 0 20px -10px rgb(74 222 128 / 0.6);
+}
+.glow-flag {
+  box-shadow:
+    inset 0 0 0 1px rgb(255 61 110 / 0.45),
+    0 0 24px -8px rgb(255 61 110 / 0.65);
+}
+.glow-warn {
+  box-shadow:
+    inset 0 0 0 1px rgb(255 183 3 / 0.4),
+    0 0 20px -10px rgb(255 183 3 / 0.6);
+}
+
+/* --------------------------------------------------------------------------
+   Typography
+-------------------------------------------------------------------------- */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Mono-forward: this is a ledger, so labels read as machine output. */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+  font-weight: 500;
+}
+
+.stat {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* --------------------------------------------------------------------------
+   Segmented meter — the ▓▓▓░░ bar. A discrete readout suits a ledger better
+   than a continuous progress bar.
+-------------------------------------------------------------------------- */
+.meter {
+  display: flex;
+  gap: 2px;
+  height: 4px;
+}
+.meter-cell {
+  flex: 1;
+  background: rgb(154 148 180 / 0.16);
+}
+.meter-cell[data-on="true"] {
+  background: var(--color-accent);
+}
+.meter-cell[data-tone="pass"][data-on="true"] {
+  background: var(--color-pass);
+}
+.meter-cell[data-tone="flag"][data-on="true"] {
+  background: var(--color-flag);
+}
+.meter-cell[data-tone="warn"][data-on="true"] {
+  background: var(--color-warn);
+}
+
+/* --------------------------------------------------------------------------
+   Pipeline motion
+-------------------------------------------------------------------------- */
+@keyframes chevron-run {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 16px 0;
+  }
+}
+
+/* Marching chevrons instead of a sweeping gradient. */
+.connector-active {
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--color-accent) 0px,
+    var(--color-accent) 5px,
+    transparent 5px,
+    transparent 16px
+  );
+  animation: chevron-run 0.55s linear infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.breathe {
+  animation: breathe 1.4s steps(8, end) infinite;
+}
+
+::selection {
+  background: rgb(200 255 47 / 0.3);
+  color: #07060d;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(154 148 180 / 0.22);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(200 255 47 / 0.4);
+  background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

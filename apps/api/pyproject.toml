@@ -1,0 +1,139 @@
+[project]
+name = "ledgerlens-api"
+version = "1.0.0"
+description = "LedgerLens — Intelligent Document Processing & Financial Anomaly Detection Platform"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.32,<1.0",
+    "pydantic>=2.9,<3.0",
+    "pydantic-settings>=2.6,<3.0",
+    "sqlalchemy[asyncio]>=2.0.36,<3.0",
+    "asyncpg>=0.30,<1.0",
+    "greenlet>=3.1,<4.0",
+    "anthropic>=0.40",
+    "pymupdf>=1.24,<2.0",
+    "pandas>=2.2,<3.0",
+    "numpy>=1.26,<3.0",
+    "rapidfuzz>=3.10,<4.0",
+    "python-multipart>=0.0.12,<1.0",
+    "slowapi>=0.1.9,<1.0",
+    "httpx>=0.27,<1.0",
+    "python-dateutil>=2.9,<3.0",
+]
+
+[project.optional-dependencies]
+observability = ["langfuse>=2.53"]
+docgen = ["reportlab>=4.2,<5.0", "pillow>=10.4,<12.0"]
+dev = [
+    "pytest>=8.3,<9.0",
+    "pytest-asyncio>=0.24,<2.0",
+    "ruff>=0.8,<1.0",
+    "mypy>=1.13,<2.0",
+    "types-python-dateutil>=2.9",
+    "pandas-stubs>=2.2",
+    "reportlab>=4.2,<5.0",
+    "pillow>=10.4,<12.0",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+# ----------------------------------------------------------------------------
+# ruff — lint + format. Zero findings is a release gate (see AUDIT.md).
+# ----------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["."]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "A",    # flake8-builtins
+    "C4",   # comprehensions
+    "DTZ",  # flake8-datetimez  (naive datetimes are a real bug class here)
+    "T20",  # flake8-print      (no stray prints in the service)
+    "SIM",  # flake8-simplify
+    "PTH",  # use pathlib
+    "RUF",  # ruff-specific
+    "S",    # bandit security
+    "ASYNC",
+    "ARG",  # unused arguments
+    "TID",  # tidy imports
+]
+ignore = [
+    "S101",  # assert — used deliberately in tests and invariant checks
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S105", "S106", "ARG001", "ARG002"]
+# Corpus generation needs a *reproducible* PRNG, not a cryptographic one:
+# a fixed seed is the point, so the run is identical every time.
+"app/devtools/corpus.py" = ["S311"]
+# Operator-facing CLIs: their whole job is to print a report to the terminal.
+"scripts/*" = ["T201"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# ----------------------------------------------------------------------------
+# mypy — strict. Zero findings is a release gate.
+# ----------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+warn_unused_ignores = true
+disallow_any_generics = true
+no_implicit_reexport = true
+show_error_codes = true
+plugins = ["pydantic.mypy"]
+# PyMuPDF ships partial annotations; its constructors are untyped. Excluding it
+# from the untyped-call rule keeps `strict` on for every line we actually own.
+untyped_calls_exclude = ["pymupdf"]
+exclude = "^(\\.venv|build)/"
+
+[[tool.mypy.overrides]]
+module = [
+    "fitz.*",
+    "pymupdf.*",
+    "slowapi.*",
+    "langfuse.*",
+    "reportlab.*",
+    "PIL.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# The engine and its connection pool are session-scoped, so fixtures and tests
+# must share one event loop; a per-function loop would orphan pooled connections.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+filterwarnings = [
+    # Our own code must not emit warnings — that is the "zero warnings" bar.
+    "error",
+    # PyMuPDF's SWIG bindings emit these three during module initialisation.
+    # Promoting them to exceptions raises *inside* the C extension's init and
+    # takes the interpreter down with SIGSEGV, so they are exempted by exact
+    # message rather than by relaxing the rule.
+    "ignore:builtin type swigvarlink has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",
+]
+addopts = "-q --strict-markers --strict-config"
+markers = [
+    "integration: requires a live Postgres (DATABASE_URL)",
+]

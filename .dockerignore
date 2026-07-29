@@ -1,0 +1,20 @@
+# Only the API source and its dependency metadata belong in the build context.
+**/node_modules
+**/.next
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.mypy_cache
+**/.ruff_cache
+**/.pytest_cache
+**/*.egg-info
+.git
+.github
+apps/web
+docs
+eval/results
+eval/testset
+infra/terraform/.terraform
+**/.env
+**/.env.*
+!**/.env.example

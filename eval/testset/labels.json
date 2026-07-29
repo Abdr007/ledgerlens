@@ -1,0 +1,446 @@
+[
+  {
+    "filename": "EV-GM-001.pdf",
+    "content_type": "application/pdf",
+    "is_scan": false,
+    "expected_anomalies": [],
+    "tags": [
+      "eval",
+      "normal"
+    ],
+    "ground_truth": {
+      "vendor": "Gulf Metals L.L.C.",
+      "invoice_number": "EV-GM-001",
+      "issue_date": "2026-03-16",
+      "due_date": "2026-04-15",
+      "subtotal": "25679.60",
+      "tax": "1283.98",
+      "total": "26963.58",
+      "currency": "AED",
+      "payment_terms": "Net 30",
+      "line_items": [
+        {
+          "description": "Stainless sheet 1.5mm",
+          "qty": "13",
+          "unit_price": "534.20",
+          "amount": "6944.60"
+        },
+        {
+          "description": "Galvanised bolts M12 (box of 100)",
+          "qty": "12",
+          "unit_price": "95.50",
+          "amount": "1146.00"
+        },
+        {
+          "description": "Aluminium channel 6m",
+          "qty": "12",
+          "unit_price": "268.75",
+          "amount": "3225.00"
+        },
+        {
+          "description": "Steel plate 10mm x 2400",
+          "qty": "11",
+          "unit_price": "420.00",
+          "amount": "4620.00"
+        },
+        {
+          "description": "Welding consumables set",
+          "qty": "12",
+          "unit_price": "812.00",
+          "amount": "9744.00"
+        }
+      ]
+    }
+  },
+  {
+    "filename": "EV-GM-002-scan.jpg",
+    "content_type": "image/jpeg",
+    "is_scan": true,
+    "expected_anomalies": [],
+    "tags": [
+      "eval",
+      "normal"
+    ],
+    "ground_truth": {
+      "vendor": "Gulf Metals L.L.C.",
+      "invoice_number": "EV-GM-002",
+      "issue_date": "2026-04-06",
+      "due_date": "2026-05-06",
+      "subtotal": "25173.40",
+      "tax": "1258.67",
+      "total": "26432.07",
+      "currency": "AED",
+      "payment_terms": "Net 30",
+      "line_items": [
+        {
+          "description": "Stainless sheet 1.5mm",
+          "qty": "12",
+          "unit_price": "534.20",
+          "amount": "6410.40"
+        },
+        {
+          "description": "Galvanised bolts M12 (box of 100)",
+          "qty": "12",
+          "unit_price": "95.50",
+          "amount": "1146.00"
+        },
+        {
+          "description": "Aluminium channel 6m",
+          "qty": "12",
+          "unit_price": "268.75",
+          "amount": "3225.00"
+        },
+        {
+          "description": "Steel plate 10mm x 2400",
+          "qty": "13",
+          "unit_price": "420.00",
+          "amount": "5460.00"
+        },
+        {
+          "description": "Welding consumables set",
+          "qty": "11",
+          "unit_price": "812.00",
+          "amount": "8932.00"
+        }
+      ]
+    }
+  },
+  {
+    "filename": "EV-GM-003.pdf",
+    "content_type": "application/pdf",
+    "is_scan": false,
+    "expected_anomalies": [],
+    "tags": [
+      "eval",
+      "normal"
+    ],
+    "ground_truth": {
+      "vendor": "Gulf Metals L.L.C.",
+      "invoice_number": "EV-GM-003",
+      "issue_date": "2026-04-27",
+      "due_date": "2026-05-27",
+      "subtotal": "24370.45",
+      "tax": "1218.52",
+      "total": "25588.97",
+      "currency": "AED",
+      "payment_terms": "Net 30",
+      "line_items": [
+        {
+          "description": "Stainless sheet 1.5mm",
+          "qty": "11",
+          "unit_price": "534.20",
+          "amount": "5876.20"
+        },
+        {
+          "description": "Galvanised bolts M12 (box of 100)",
+          "qty": "12",
+          "unit_price": "95.50",
+          "amount": "1146.00"
+        },
+        {
+          "description": "Aluminium channel 6m",
+          "qty": "11",
+          "unit_price": "268.75",
+          "amount": "2956.25"
+        },
+        {
+          "description": "Steel plate 10mm x 2400",
+          "qty": "13",
+          "unit_price": "420.00",
+          "amount": "5460.00"
+        },
+        {
+          "description": "Welding consumables set",
+          "qty": "11",
+          "unit_price": "812.00",
+          "amount": "8932.00"
+        }
+      ]
+    }
+  },
+  {
+    "filename": "EV-GM-004-scan.jpg",
+    "content_type": "image/jpeg",
+    "is_scan": true,
+    "expected_anomalies": [],
+    "tags": [
+      "eval",
+      "normal"
+    ],
+    "ground_truth": {
+      "vendor": "Gulf Metals L.L.C.",
+      "invoice_number": "EV-GM-004",
+      "issue_date": "2026-05-18",
+      "due_date": "2026-06-17",
+      "subtotal": "26911.60",
+      "tax": "1345.58",
+      "total": "28257.18",
+      "currency": "AED",
+      "payment_terms": "Net 30",
+      "line_items": [
+        {
+          "description": "Stainless sheet 1.5mm",
+          "qty": "13",
+          "unit_price": "534.20",
+          "amount": "6944.60"
+        },
+        {
+          "description": "Galvanised bolts M12 (box of 100)",
+          "qty": "12",
+          "unit_price": "95.50",
+          "amount": "1146.00"
+        },
+        {
+          "description": "Aluminium channel 6m",
+          "qty": "12",
+          "unit_price": "268.75",
+          "amount": "3225.00"
+        },
+        {
+          "description": "Steel plate 10mm x 2400",
+          "qty": "12",
+          "unit_price": "420.00",
+          "amount": "5040.00"
+        },
+        {
+          "description": "Welding consumables set",
+          "qty": "13",
+          "unit_price": "812.00",
+          "amount": "10556.00"
+        }
+      ]
+    }
+  },
+  {
+    "filename": "EV-NA-001.pdf",
+    "content_type": "application/pdf",
+    "is_scan": false,
+    "expected_anomalies": [],
+    "tags": [
+      "eval",
+      "normal"
+    ],
+    "ground_truth": {
+      "vendor": "Nakheel Facilities Management",
+      "invoice_number": "EV-NA-001",
+      "issue_date": "2026-06-20",
+      "due_date": "2026-07-05",
+      "subtotal": "1676.35",
+      "tax": "83.82",
+      "total": "1760.17",
+      "currency": "AED",
+      "payment_terms": "Net 15",
+      "line_items": [
+        {
+          "description": "Pest control visit",
+          "qty": "1",
+          "unit_price": "176.45",
+          "amount": "176.45"
+        },
+        {
+          "description": "HVAC filter replacement",
+          "qty": "3",
+          "unit_price": "218.30",
+          "amount": "654.90"
+        },
+        {
+          "description": "Deep carpet treatment",
+          "qty": "1",
+          "unit_price": "845.00",
+          "amount": "845.00"
+        }
+      ]
+    }
+  },
+  {
+    "filename": "EV-CE-002-scan.jpg",
+    "content_type": "image/jpeg",
+    "is_scan": true,
+    "expected_anomalies": [],
+    "tags": [
+      "eval",
+      "normal"
+    ],
+    "ground_truth": {
+      "vendor": "Cedar Print House",
+      "invoice_number": "EV-CE-002",
+      "issue_date": "2026-06-11",
+      "due_date": "2026-06-11",
+      "subtotal": "1809.60",
+      "tax": "90.48",
+      "total": "1900.08",
+      "currency": "AED",
+      "payment_terms": "Due on receipt",
+      "line_items": [
+        {
+          "description": "A2 poster print",
+          "qty": "4",
+          "unit_price": "63.40",
+          "amount": "253.60"
+        },
+        {
+          "description": "Roll-up banner",
+          "qty": "5",
+          "unit_price": "311.20",
+          "amount": "1556.00"
+        }
+      ]
+    }
+  },
+  {
+    "filename": "EV-AU-101.pdf",
+    "content_type": "application/pdf",
+    "is_scan": false,
+    "expected_anomalies": [],
+    "tags": [
+      "eval",
+      "duplicate-original"
+    ],
+    "ground_truth": {
+      "vendor": "Aurora Systems FZ-LLC",
+      "invoice_number": "EV-AU-101",
+      "issue_date": "2026-07-02",
+      "due_date": "2026-08-16",
+      "subtotal": "11545.40",
+      "tax": "577.27",
+      "total": "12122.67",
+      "currency": "AED",
+      "payment_terms": "Net 45",
+      "line_items": [
+        {
+          "description": "Network hardware maintenance",
+          "qty": "6",
+          "unit_price": "376.90",
+          "amount": "2261.40"
+        },
+        {
+          "description": "Managed endpoint support (per seat)",
+          "qty": "2",
+          "unit_price": "148.00",
+          "amount": "296.00"
+        },
+        {
+          "description": "Security monitoring tier 2",
+          "qty": "7",
+          "unit_price": "1284.00",
+          "amount": "8988.00"
+        }
+      ]
+    }
+  },
+  {
+    "filename": "EV-AU-102.pdf",
+    "content_type": "application/pdf",
+    "is_scan": false,
+    "expected_anomalies": [
+      "duplicate"
+    ],
+    "tags": [
+      "eval",
+      "duplicate-copy"
+    ],
+    "ground_truth": {
+      "vendor": "Aurora Systems FZ-LLC",
+      "invoice_number": "EV-AU-102",
+      "issue_date": "2026-07-06",
+      "due_date": "2026-08-20",
+      "subtotal": "11591.60",
+      "tax": "579.58",
+      "total": "12171.18",
+      "currency": "AED",
+      "payment_terms": "Net 45",
+      "line_items": [
+        {
+          "description": "Network hardware maintenance",
+          "qty": "6",
+          "unit_price": "376.90",
+          "amount": "2261.40"
+        },
+        {
+          "description": "Managed endpoint support (per seat)",
+          "qty": "2",
+          "unit_price": "148.00",
+          "amount": "296.00"
+        },
+        {
+          "description": "Security monitoring tier 2",
+          "qty": "7",
+          "unit_price": "1290.60",
+          "amount": "9034.20"
+        }
+      ]
+    }
+  },
+  {
+    "filename": "EV-CP-901.pdf",
+    "content_type": "application/pdf",
+    "is_scan": false,
+    "expected_anomalies": [],
+    "tags": [
+      "eval",
+      "arithmetic-defect"
+    ],
+    "ground_truth": {
+      "vendor": "Cedar Print House",
+      "invoice_number": "EV-CP-901",
+      "issue_date": "2026-07-09",
+      "due_date": "2026-07-09",
+      "subtotal": "2305.20",
+      "tax": "115.26",
+      "total": "2870.46",
+      "currency": "AED",
+      "payment_terms": "Due on receipt",
+      "line_items": [
+        {
+          "description": "Roll-up banner",
+          "qty": "7",
+          "unit_price": "311.20",
+          "amount": "2178.40"
+        },
+        {
+          "description": "A2 poster print",
+          "qty": "2",
+          "unit_price": "63.40",
+          "amount": "126.80"
+        }
+      ]
+    }
+  },
+  {
+    "filename": "EV-GM-999.pdf",
+    "content_type": "application/pdf",
+    "is_scan": false,
+    "expected_anomalies": [
+      "amount_zscore"
+    ],
+    "tags": [
+      "eval",
+      "inflated-amount"
+    ],
+    "ground_truth": {
+      "vendor": "Gulf Metals L.L.C.",
+      "invoice_number": "EV-GM-999",
+      "issue_date": "2026-07-17",
+      "due_date": "2026-08-16",
+      "subtotal": "62222.20",
+      "tax": "3111.11",
+      "total": "65333.31",
+      "currency": "AED",
+      "payment_terms": "Net 30",
+      "line_items": [
+        {
+          "description": "Steel plate 10mm x 2400",
+          "qty": "96",
+          "unit_price": "420.00",
+          "amount": "40320.00"
+        },
+        {
+          "description": "Stainless sheet 1.5mm",
+          "qty": "41",
+          "unit_price": "534.20",
+          "amount": "21902.20"
+        }
+      ]
+    }
+  }
+]

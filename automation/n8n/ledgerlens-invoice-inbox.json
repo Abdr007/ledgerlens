@@ -1,0 +1,283 @@
+{
+  "id": "ledgerlens-invoice-inbox",
+  "name": "LedgerLens \u2014 Invoice Inbox to Slack",
+  "meta": {
+    "description": "Watches an accounts-payable mailbox, pushes every PDF/image attachment into LedgerLens, waits for the pipeline to settle, and posts a Slack alert only when a document needs a human. Import into a self-hosted n8n (free, local Docker).",
+    "instanceId": "ledgerlens-automation-showcase"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "readStatus": "unread"
+        },
+        "downloadAttachments": true,
+        "options": {}
+      },
+      "id": "trigger-inbox",
+      "name": "AP Mailbox (IMAP)",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [
+        -260,
+        300
+      ],
+      "notes": "Any IMAP mailbox. Swap for the Gmail node if you prefer OAuth."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Keep only the attachments LedgerLens accepts (spec \u00a77 whitelist:\n// PDF/PNG/JPG, 10 MB). Filtering here saves a round trip and keeps the\n// mailbox's junk out of the ledger.\nconst MAX_BYTES = 10 * 1024 * 1024;\nconst ALLOWED = ['application/pdf', 'image/png', 'image/jpeg'];\nconst out = [];\n\nfor (const item of $input.all()) {\n  const binaries = item.binary ?? {};\n  for (const key of Object.keys(binaries)) {\n    const file = binaries[key];\n    const type = (file.mimeType || '').toLowerCase();\n    const size = Number(file.fileSize ?? 0);\n    if (!ALLOWED.includes(type)) continue;\n    if (size > MAX_BYTES) continue;\n    out.push({\n      json: {\n        filename: file.fileName ?? 'document',\n        mimeType: type,\n        from: item.json.from ?? null,\n        subject: item.json.subject ?? null,\n      },\n      binary: { data: file },\n    });\n  }\n}\n\nreturn out;"
+      },
+      "id": "filter-attachments",
+      "name": "Keep Accepted Attachments",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LEDGERLENS_API_URL }}/v1/documents",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "neverError": false
+            }
+          }
+        }
+      },
+      "id": "upload",
+      "name": "POST /v1/documents",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        180,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "SHA-256 of the bytes is the idempotency key: the same attachment forwarded twice returns the existing record instead of double-processing."
+    },
+    {
+      "parameters": {
+        "amount": 4,
+        "unit": "seconds"
+      },
+      "id": "settle",
+      "name": "Let The Pipeline Settle",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        400,
+        300
+      ],
+      "webhookId": "ledgerlens-settle"
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.LEDGERLENS_API_URL }}/v1/documents/{{ $json.document_id }}/status",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "poll-status",
+      "name": "GET status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        620,
+        300
+      ],
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 3000,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "version": 2
+          },
+          "combinator": "or",
+          "conditions": [
+            {
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "NEEDS_REVIEW"
+            },
+            {
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              },
+              "leftValue": "={{ $json.anomaly_count }}",
+              "rightValue": 0
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "needs-human",
+      "name": "Needs a human?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        840,
+        300
+      ],
+      "notes": "Clean documents commit silently. Only exceptions interrupt anyone \u2014 an alert that fires on everything gets muted within a week."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  text: `:rotating_light: LedgerLens flagged an invoice \u2014 ${$json.extraction?.vendor ?? 'unknown vendor'}`,\n  blocks: [\n    { type: 'header', text: { type: 'plain_text', text: 'Invoice needs review' } },\n    { type: 'section', fields: [\n      { type: 'mrkdwn', text: `*Vendor*\\n${$json.extraction?.vendor ?? '\u2014'}` },\n      { type: 'mrkdwn', text: `*Total*\\n${$json.extraction?.currency ?? ''} ${$json.extraction?.total ?? '\u2014'}` },\n      { type: 'mrkdwn', text: `*Invoice no.*\\n${$json.extraction?.invoice_number ?? '\u2014'}` },\n      { type: 'mrkdwn', text: `*Severity*\\n${$json.highest_severity ?? 'validation'}` }\n    ]},\n    { type: 'section', text: { type: 'mrkdwn', text: `*Why*\\n${$json.status_reason ?? 'Deterministic validation failed.'}` } },\n    { type: 'context', elements: [ { type: 'mrkdwn', text: `Processed in ${$json.latency_ms ?? 0} ms \u00b7 ${$json.lane ?? '\u2014'} lane \u00b7 <${$env.LEDGERLENS_WEB_URL}|open the review queue>` } ] }\n  ]\n}) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "slack-alert",
+      "name": "Slack Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1080,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3
+    },
+    {
+      "parameters": {
+        "jsCode": "// Clean documents are recorded, not announced.\nreturn $input.all().map((item) => ({\n  json: {\n    document_id: item.json.document_id,\n    status: item.json.status,\n    vendor: item.json.extraction?.vendor ?? null,\n    total: item.json.extraction?.total ?? null,\n    latency_ms: item.json.latency_ms ?? null,\n    note: 'Committed to the ledger without human intervention.',\n  },\n}));"
+      },
+      "id": "auto-committed",
+      "name": "Auto-committed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "AP Mailbox (IMAP)": {
+      "main": [
+        [
+          {
+            "node": "Keep Accepted Attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep Accepted Attachments": {
+      "main": [
+        [
+          {
+            "node": "POST /v1/documents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /v1/documents": {
+      "main": [
+        [
+          {
+            "node": "Let The Pipeline Settle",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Let The Pipeline Settle": {
+      "main": [
+        [
+          {
+            "node": "GET status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET status": {
+      "main": [
+        [
+          {
+            "node": "Needs a human?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs a human?": {
+      "main": [
+        [
+          {
+            "node": "Slack Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Auto-committed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "ledgerlens"
+    },
+    {
+      "name": "accounts-payable"
+    }
+  ]
+}
