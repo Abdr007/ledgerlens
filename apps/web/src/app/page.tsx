@@ -162,6 +162,12 @@ export default function MissionControl() {
   );
 
   const modeLabel = health?.llm_mode === "live" ? "Claude live" : "Offline engine";
+  // Three states, not two. Before the first health response resolves we do not
+  // know anything — and on a free tier that first response can take the better
+  // part of a minute while the container and the database wake. Rendering
+  // "unreachable" during that window states as fact something we have not
+  // established, and it is the first thing a visitor sees.
+  const ledgerState = health === null ? (loading ? "waking" : "unknown") : health.database;
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-[1400px] flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -184,9 +190,17 @@ export default function MissionControl() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Badge tone={health?.database === "up" ? "pass" : "flag"}>
-            <CircleDot className="size-3" />
-            {health?.database === "up" ? "Ledger online" : "Ledger unreachable"}
+          <Badge
+            tone={
+              ledgerState === "up" ? "pass" : ledgerState === "waking" ? "neutral" : "flag"
+            }
+          >
+            <CircleDot className={cn("size-3", ledgerState === "waking" && "breathe")} />
+            {ledgerState === "up"
+              ? "Ledger online"
+              : ledgerState === "waking"
+                ? "Waking server"
+                : "Ledger unreachable"}
           </Badge>
           <Badge tone={health?.llm_mode === "live" ? "accent" : "neutral"}>
             <Activity className="size-3" />
@@ -208,7 +222,10 @@ export default function MissionControl() {
         </div>
       </header>
 
-      {connectionError ? (
+      {/* Suppressed while the first load is still in flight: the client already
+          retries a cold start for ~50 s, so an error shown before that budget is
+          spent would be reporting a failure that has not happened yet. */}
+      {connectionError && !loading ? (
         <div className="border-l-2 border-flag bg-flag/[0.07] px-4 py-3 text-[13px] text-flag/90">
           {connectionError}
         </div>

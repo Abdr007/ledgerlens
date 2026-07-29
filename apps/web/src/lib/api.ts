@@ -43,20 +43,64 @@ function isApiError(value: unknown): value is ApiError {
   return typeof inner === "object" && inner !== null && "code" in inner && "message" in inner;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Cold starts                                                                 */
+/* -------------------------------------------------------------------------- */
+
+// The API and the database both run on free tiers that suspend when idle. The
+// first request after a quiet spell has to wake a container *and* a serverless
+// Postgres, which the host itself warns can take 50 seconds or more.
+//
+// That is normal operation here, not a fault — so a read that fails to connect
+// is retried rather than reported. Without this, the first visitor after an idle
+// period is told the service is unreachable while it is, in fact, starting up:
+// the worst possible first impression, and a false one.
+//
+// Backoff sums to ~50 s of waiting, which covers the documented worst case.
+const COLD_START_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 15_000, 20_000] as const;
+
+// 502/503/504 are what a platform returns while it is bringing a service up.
+const WAKING_STATUSES = new Set([502, 503, 504]);
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Only replay requests that are safe to send twice. */
+function isRetryable(init?: RequestInit): boolean {
+  const method = (init?.method ?? "GET").toUpperCase();
+  return method === "GET" || method === "HEAD";
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
-      ...init,
-      cache: "no-store",
-      headers: { Accept: "application/json", ...(init?.headers ?? {}) },
-    });
-  } catch (cause) {
+  const retryable = isRetryable(init);
+  let response: Response | null = null;
+  let lastCause: unknown = null;
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      response = await fetch(`${API_BASE_URL}${path}`, {
+        ...init,
+        cache: "no-store",
+        headers: { Accept: "application/json", ...(init?.headers ?? {}) },
+      });
+      if (!retryable || !WAKING_STATUSES.has(response.status)) break;
+      lastCause = `HTTP ${response.status}`;
+    } catch (cause) {
+      lastCause = cause;
+      response = null;
+    }
+
+    const delay = COLD_START_BACKOFF_MS[attempt];
+    if (!retryable || delay === undefined) break;
+    await sleep(delay);
+  }
+
+  if (response === null) {
     throw new ApiRequestError(
-      `Cannot reach the LedgerLens API at ${API_BASE_URL}. Is it running?`,
+      `Cannot reach the LedgerLens API at ${API_BASE_URL}. ` +
+        `It runs on a free tier that sleeps when idle — if it was just woken, give it a moment and retry.`,
       "network_error",
       0,
-      { cause: String(cause) },
+      { cause: String(lastCause) },
     );
   }
 
