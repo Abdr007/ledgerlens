@@ -1,6 +1,14 @@
 # LedgerLens
 
+[![CI](https://github.com/Abdr007/ledgerlens/actions/workflows/ci.yml/badge.svg)](https://github.com/Abdr007/ledgerlens/actions/workflows/ci.yml)
+
 **Intelligent Document Processing & Financial Anomaly Detection Platform**
+
+**Live:** [dashboard](https://ledgerlens-jet.vercel.app) · [API](https://ledgerlens-api-rfnr.onrender.com/health) · [OpenAPI docs](https://ledgerlens-api-rfnr.onrender.com/docs)
+
+> Both run on free tiers, so the first request after a quiet spell wakes a
+> sleeping container and a suspended database — allow up to a minute. Every
+> request after that is fast.
 
 Vision-LLM extraction with deterministic validation, explainable anomaly detection and a
 full audit trail — solving duplicate-payment and manual-entry losses.
