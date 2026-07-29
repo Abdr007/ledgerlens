@@ -43,7 +43,7 @@ services:
       - key: LANGFUSE_HOST
         value: https://cloud.langfuse.com
       - key: ENVIRONMENT
-        value: production
+        value: prod
       - key: LOG_LEVEL
         value: INFO
       # Render terminates TLS at one proxy in front of the container. Counting

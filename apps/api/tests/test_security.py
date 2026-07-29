@@ -338,3 +338,35 @@ def test_no_source_file_passes_a_reserved_key_to_extra() -> None:
                         )
 
     assert not offenders, "reserved LogRecord keys passed via extra=: " + ", ".join(offenders)
+
+
+# ---------------------------------------------------------------------------
+# Deployment blueprint must agree with the settings schema
+# ---------------------------------------------------------------------------
+
+
+def test_render_blueprint_env_vars_validate_against_settings() -> None:
+    """Every literal in `render.yaml` must be a value `Settings` actually accepts.
+
+    A deploy blueprint is code that only ever executes on the platform, so a
+    typo in it is invisible until production refuses to boot. That happened:
+    `ENVIRONMENT: production` is not one of `dev|test|prod`, and the container
+    died at import with a pydantic ValidationError before serving a request.
+    Instantiating the real Settings with the real blueprint values catches it
+    here instead of three minutes into a remote build.
+    """
+    import yaml
+
+    from app.core.settings import Settings
+
+    blueprint = pathlib.Path(__file__).resolve().parents[3] / "render.yaml"
+    if not blueprint.exists():  # pragma: no cover - repository layout guard
+        pytest.skip("render.yaml is not present")
+
+    services = yaml.safe_load(blueprint.read_text())["services"]
+    for service in services:
+        literals = {v["key"]: v["value"] for v in service["envVars"] if "value" in v}
+        # A secret is supplied by the platform, not the file; give the fields
+        # that have no usable default something syntactically valid.
+        literals.setdefault("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/db")
+        Settings(**{key.lower(): value for key, value in literals.items()})
