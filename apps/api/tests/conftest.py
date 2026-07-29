@@ -31,7 +31,18 @@ os.environ["ALLOWED_ORIGINS"] = "http://localhost:3000"
 # Treat X-Forwarded-For as authoritative in tests so each case can present a
 # distinct client IP and get its own rate-limit bucket.
 os.environ["TRUSTED_PROXY_COUNT"] = "1"
-os.environ.pop("ANTHROPIC_API_KEY", None)
+# Nothing in the suite may reach the network. `LLM_MODE=stub` covers Claude, but
+# Langfuse is configured independently: leave its keys in place and the tracer
+# instantiates a real client and exports every span to cloud.langfuse.com. That
+# turned a 4-second suite into a hang the moment a developer put working keys in
+# their .env — tests that depend on someone's local secrets are not tests.
+# Set to empty rather than popped: pydantic-settings also reads the `.env` file,
+# so unsetting the environment variable is not enough — a developer with working
+# keys on disk would still get a live client. An empty value is normalised to
+# None by Settings, which is the same thing the platform does for a blank field.
+os.environ["ANTHROPIC_API_KEY"] = ""
+os.environ["LANGFUSE_PUBLIC_KEY"] = ""
+os.environ["LANGFUSE_SECRET_KEY"] = ""
 
 from sqlalchemy import text
 from sqlalchemy.engine.url import make_url

@@ -33,13 +33,14 @@ services:
         sync: false
       - key: LANGFUSE_SECRET_KEY
         sync: false
-      # The Vercel domain of the frontend, comma-separated. Set after the first
-      # frontend deploy, once its URL exists. Never "*": CORS is the only thing
-      # stopping another origin from driving this API with a visitor's browser.
-      - key: ALLOWED_ORIGINS
-        sync: false
 
       # --- Safe to keep in version control -------------------------------
+      # The frontend's origin. A domain name is not a secret, so it belongs in the
+      # blueprint where it is reviewable and deploys itself — unlike the keys above.
+      # Never "*": CORS is the only thing stopping another origin from driving this
+      # API with a signed-in visitor's browser.
+      - key: ALLOWED_ORIGINS
+        value: https://ledgerlens-jet.vercel.app
       - key: LANGFUSE_HOST
         value: https://cloud.langfuse.com
       - key: ENVIRONMENT

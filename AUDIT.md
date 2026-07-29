@@ -30,7 +30,7 @@ TEST_DATABASE_URL='postgresql+asyncpg://…-pooler….neon.tech/ledgerlens_test?
 |---|---|---|---|
 | **a** | `ruff` + `mypy` pass with zero issues | `make lint typecheck` | **PASS** |
 | **b** | `eslint` + `tsc --noEmit` pass with zero issues | `make web-lint web-typecheck` | **PASS** |
-| **c** | `pytest` green, incl. validation math, idempotent re-upload, duplicate detection, and status transitions under two concurrent requests | `make test` | **PASS** — 109 passed |
+| **c** | `pytest` green, incl. validation math, idempotent re-upload, duplicate detection, and status transitions under two concurrent requests | `make test` | **PASS** — 111 passed |
 | **d** | End-to-end: uploading a document returns validated structured data and the UI animates through all stages | live run, §4 below | **PASS** (text lane) · **PENDING KEY** (vision lane) |
 | **e** | Planted duplicate raises a **HIGH**-severity anomaly with an explanation | `make seed`; `test_planted_duplicate_raises_a_high_severity_anomaly` | **PASS** |
 | **f** | `README.md` with mermaid diagram, local dev, and step-by-step free deploy (Vercel · Cloud Run + `gcloud` · HF Spaces fallback · Neon · Langfuse) + optional Terraform module | [README.md](./README.md), [infra/terraform](./infra/terraform) | **PASS** |
@@ -97,11 +97,11 @@ A headless browser was not available on this machine, so the browser devtools co
 not opened directly. Open <http://localhost:3000> and check it in one keystroke; every
 class of problem that would appear there is covered by a gate above.
 
-### (c) Tests — 109, against real PostgreSQL
+### (c) Tests — 111, against real PostgreSQL
 
 ```
 $ make test
-109 passed
+111 passed
 ```
 
 The suite **provisions its own database**. If `ledgerlens_test` does not exist, it is
@@ -113,7 +113,7 @@ warrants it: the PostgreSQL *server* itself being unreachable.
 | Module | Tests | Covers |
 |---|---|---|
 | `test_validation.py` | 32 | Every deterministic rule with hand-computed expectations; money parsing across 11 formats; date parsing; schema forbids invented fields; nulls allowed everywhere |
-| `test_security.py` | 44 | Magic-byte whitelist; declared-type spoofing; size and empty-file limits; filename sanitisation (traversal, control chars, bidi override); PDF page and pixel bombs; secret redaction across 10 credential shapes; prompt-injection resistance; reserved-`LogRecord`-key safety, plus a static sweep of every `extra=` in shipped code |
+| `test_security.py` | 46 | Magic-byte whitelist; declared-type spoofing; size and empty-file limits; filename sanitisation (traversal, control chars, bidi override); PDF page and pixel bombs; secret redaction across 10 credential shapes; prompt-injection resistance; reserved-`LogRecord`-key safety plus a static sweep of every `extra=` in shipped code; the deploy blueprint validated against the settings schema; blank secrets treated as absent |
 | `test_pipeline_integration.py` | 15 | Full pipeline on real Postgres; idempotency; **8 concurrent uploads**; **6 concurrent processors**; status-transition counts; `failed_jobs`; append-only trigger; planted duplicate; no false positives; re-screen idempotence |
 | `test_api.py` | 18 | Error envelopes; CORS allow and deny; security headers; rate limiting per IP and its isolation; typed 404/422; OpenAPI completeness |
 
@@ -240,7 +240,7 @@ with any other project in the same Neon account.
 | Planted near-duplicate detected | **PASS** — HIGH, OPEN, with its plain-English reason |
 | End-to-end upload through the API | **PASS** — six stages, correct extraction, anomaly raised |
 | 8 concurrent uploads of one file | **PASS** — 1 document id, 0 errors, 1 row |
-| Full test suite against Neon | **PASS** — all **109** tests green against the hosted database, not just against Docker |
+| Full test suite against Neon | **PASS** — the whole suite green against the hosted database, not just against Docker |
 
 ### What only the hosted database revealed
 

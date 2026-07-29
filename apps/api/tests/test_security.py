@@ -370,3 +370,36 @@ def test_render_blueprint_env_vars_validate_against_settings() -> None:
         # that have no usable default something syntactically valid.
         literals.setdefault("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/db")
         Settings(**{key.lower(): value for key, value in literals.items()})
+
+
+def test_a_blank_secret_is_treated_as_absent() -> None:
+    """An empty env var must mean "not configured", not "configured to nothing".
+
+    Deployment platforms supply an empty string for a declared-but-blank
+    variable. Left as `SecretStr("")`, every "do we have a key?" check answers
+    yes and the service authenticates to Claude with nothing — surfacing as an
+    auth failure on the first real document instead of as the misconfiguration
+    it is. The same holds for Langfuse: a blank key must not build a live client.
+    """
+    from app.core.settings import Settings
+
+    # llm_mode is pinned: the suite forces "stub" globally, which would short-circuit
+    # use_live_llm and hide what this test is actually checking.
+    blank = Settings(
+        llm_mode="auto",
+        anthropic_api_key="",
+        langfuse_public_key="   ",
+        langfuse_secret_key="",
+    )
+    assert blank.anthropic_api_key is None
+    assert blank.use_live_llm is False
+    assert blank.langfuse_enabled is False
+
+    present = Settings(
+        llm_mode="auto",
+        anthropic_api_key="sk-ant-real",
+        langfuse_public_key="pk-lf-a",
+        langfuse_secret_key="sk-lf-b",
+    )
+    assert present.use_live_llm is True
+    assert present.langfuse_enabled is True

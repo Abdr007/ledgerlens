@@ -85,6 +85,27 @@ class Settings(BaseSettings):
     zscore_threshold: float = 2.0
     min_history_for_zscore: int = 4
 
+    @field_validator(
+        "anthropic_api_key",
+        "langfuse_public_key",
+        "langfuse_secret_key",
+        mode="before",
+    )
+    @classmethod
+    def _blank_secret_is_absent(cls, value: object) -> object:
+        """An empty or whitespace-only secret means "not configured", not "configured to nothing".
+
+        Deployment platforms hand you an empty string for a variable you declared
+        but left blank — Render does exactly this for a `sync: false` field you
+        skip. Without this, `anthropic_api_key` becomes `SecretStr("")`, every
+        "is a key present?" check says yes, and the service tries to authenticate
+        to Claude with nothing. The failure surfaces as an auth error on the first
+        real document rather than as the obvious misconfiguration it is.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @field_validator("allowed_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:

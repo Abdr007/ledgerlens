@@ -283,7 +283,7 @@ Every error is the same envelope — never a stack trace:
 ```
 ledgerlens/
 ├─ apps/
-│  ├─ web/                     Next.js 15 · TypeScript · Tailwind v4 · Framer Motion · Recharts
+│  ├─ web/                     Next.js 15 · TypeScript · Tailwind v4 · Framer Motion · Recharts · vercel.json
 │  └─ api/
 │     ├─ app/
 │     │  ├─ core/              settings · Claude client · db · retries · tracing · logging · files
@@ -292,10 +292,11 @@ ledgerlens/
 │     │  ├─ routers/           documents · anomalies · stats · health · projections · rate limits
 │     │  └─ devtools/          document generator + corpora (never imported by the request path)
 │     ├─ scripts/seed.py       30 invoices through the real pipeline
-│     └─ tests/                107 tests · unit + integration on real PostgreSQL
+│     └─ tests/                109 tests · unit + integration on real PostgreSQL
 ├─ eval/run_eval.py            field accuracy + anomaly precision/recall
 ├─ automation/n8n/             exported workflow
-├─ infra/                      Dockerfile · docker-compose.dev.yml · vercel.json · terraform/
+├─ render.yaml                 Render blueprint for the API (infrastructure as code)
+├─ infra/                      Dockerfile · docker-compose.dev.yml · terraform/
 ├─ docs/SPEC-CONFORMANCE.md    every spec requirement, mapped to where it lives
 ├─ AUDIT.md                    every gate, with results
 └─ Makefile
