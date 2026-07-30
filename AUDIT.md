@@ -2,7 +2,10 @@
 
 Every check from the build spec, the command that runs it, and its result.
 
-**Run:** 2026-07-29 · macOS 15 (arm64) · Python 3.12.13 · Node 24.9.0 · PostgreSQL 16 (Docker)
+**First run:** 2026-07-29 · macOS 15 (arm64) · Python 3.12.13 · Node 24.9.0 · PostgreSQL 16 (Docker)
+**Second pass:** 2026-07-31 — the move to a Hugging Face Space, re-measurement of every
+number in §8, and verification of the running deployment from outside. See **§4c**, which
+is the only section written against the deployment rather than the source.
 **Mode:** `offline` — no `ANTHROPIC_API_KEY` was available at audit time. Every check below
 that does not require a live model is a real result. The two that do are marked
 **PENDING KEY** with the exact command to reproduce them, and nothing anywhere in this
@@ -33,7 +36,7 @@ TEST_DATABASE_URL='postgresql+asyncpg://…-pooler….neon.tech/ledgerlens_test?
 | **c** | `pytest` green, incl. validation math, idempotent re-upload, duplicate detection, and status transitions under two concurrent requests | `make test` | **PASS** — 111 passed |
 | **d** | End-to-end: uploading a document returns validated structured data and the UI animates through all stages | live run, §4 below | **PASS** (text lane) · **PENDING KEY** (vision lane) |
 | **e** | Planted duplicate raises a **HIGH**-severity anomaly with an explanation | `make seed`; `test_planted_duplicate_raises_a_high_severity_anomaly` | **PASS** |
-| **f** | `README.md` with mermaid diagram, local dev, and step-by-step free deploy (Vercel · Cloud Run + `gcloud` · HF Spaces fallback · Neon · Langfuse) + optional Terraform module | [README.md](./README.md), [infra/terraform](./infra/terraform) | **PASS** |
+| **f** | `README.md` with mermaid diagram, local dev, and a step-by-step free deploy | [README.md](./README.md) | **PASS**, with one deliberate deviation — the spec asked for Cloud Run *and* Spaces *and* a Terraform module; one host is deployed and the other two are deleted rather than published untested. Recorded as **D-2** in [SPEC-CONFORMANCE](./docs/SPEC-CONFORMANCE.md), and §4c below |
 
 ### (a) Python — lint, format and types
 
@@ -59,8 +62,11 @@ configuration exemptions exist, each for a third-party limitation rather than ou
 | `ignore_missing_imports` for `fitz`, `pymupdf`, `slowapi`, `langfuse`, `reportlab`, `PIL` | These publish no type stubs. |
 
 Ruff runs 16 rule families including `S` (bandit security), `DTZ` (naive datetimes),
-`ASYNC`, `T20` (no stray prints) and `PTH`. There are **four** `# noqa` suppressions in the
-entire codebase, each with the reason written next to it:
+`ASYNC`, `T20` (no stray prints) and `PTH`. Since 2026-07-31 it also covers `scripts/`,
+which sits outside `apps/api` and was therefore outside every gate despite being the
+deployment surface — the place where a fault takes the running API down rather than failing
+a test. There are **six** `# noqa` suppressions across four rules in the entire codebase,
+each with the reason written next to it:
 
 | Location | Rule | Why |
 |---|---|---|
@@ -113,7 +119,7 @@ warrants it: the PostgreSQL *server* itself being unreachable.
 | Module | Tests | Covers |
 |---|---|---|
 | `test_validation.py` | 32 | Every deterministic rule with hand-computed expectations; money parsing across 11 formats; date parsing; schema forbids invented fields; nulls allowed everywhere |
-| `test_security.py` | 46 | Magic-byte whitelist; declared-type spoofing; size and empty-file limits; filename sanitisation (traversal, control chars, bidi override); PDF page and pixel bombs; secret redaction across 10 credential shapes; prompt-injection resistance; reserved-`LogRecord`-key safety plus a static sweep of every `extra=` in shipped code; the deploy blueprint validated against the settings schema; blank secrets treated as absent |
+| `test_security.py` | 46 | Magic-byte whitelist; declared-type spoofing; size and empty-file limits; filename sanitisation (traversal, control chars, bidi override); PDF page and pixel bombs; secret redaction across 10 credential shapes; prompt-injection resistance; reserved-`LogRecord`-key safety plus a static sweep of every `extra=` in shipped code; the deploy variables validated against the settings schema, including a wildcard-CORS and proxy-count assertion; blank secrets treated as absent |
 | `test_pipeline_integration.py` | 15 | Full pipeline on real Postgres; idempotency; **8 concurrent uploads**; **6 concurrent processors**; status-transition counts; `failed_jobs`; append-only trigger; planted duplicate; no false positives; re-screen idempotence |
 | `test_api.py` | 18 | Error envelopes; CORS allow and deny; security headers; rate limiting per IP and its isolation; typed 404/422; OpenAPI completeness |
 
@@ -157,7 +163,7 @@ exceptions raises *inside* the C extension's init and takes the interpreter down
 | **CORS** | Locked to `ALLOWED_ORIGINS`. No wildcard anywhere. | `test_cors_rejects_an_unknown_origin`; live container check below |
 | **Security headers** | `Content-Security-Policy: default-src 'none'`, `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, COOP/CORP; HSTS in production. Relaxed on `/docs` only, where Swagger UI needs scripts. | `test_security_headers_are_present` |
 | **Secret redaction** | Provider key prefixes, connection-string credentials, labelled secrets in headers or JSON, bare bearer tokens, and private-key blocks are scrubbed from every log line. | 10 parametrised cases + private-key test |
-| **Least privilege** | Container runs as uid 1000, `read_only: true`, `no-new-privileges`. Terraform provisions a dedicated service account rather than the project-Editor default. | live container check below |
+| **Least privilege** | Container runs as uid 1000, `read_only: true`, `no-new-privileges`; `app/devtools` is deleted at build time. | live container check below, and asserted in CI on every push |
 
 > **A real bug this found.** The original redaction pattern was
 > `\b(authorization|x-api-key)\b\s*[:=]\s*\S+`. On `Authorization: Bearer <token>` the `\S+`
@@ -271,6 +277,133 @@ about the seeder's distance from Virginia than about the pipeline.
 
 ---
 
+## 4c. The hosted deployment (2026-07-31)
+
+The API moved from a Render free instance to a Hugging Face Docker Space. Render's free
+plan stops the container after roughly fifteen minutes idle, so the live API took **52
+seconds** to answer after a quiet spell — long enough that anyone opening the demo link
+concluded it was broken before it replied. The Space sleeps after 48 hours instead.
+
+Honesty about that 52 s: it is the figure the project owner measured and the reason for the
+move. It could not be reproduced during this audit, because every probe found the container
+already warm — `/health` answered in **0.45 s**. A cold Render instance was never observed
+here, so the number is reported as inherited, not as measured by this document.
+
+### What the migration exposed
+
+Four defects, all in deployment tooling, all found by running it rather than reading it.
+
+| # | Defect | Why it was invisible | Fix |
+|---|---|---|---|
+| 1 | **The deploy script could never run.** Its preflight required a `Dockerfile` at the repository root. This project keeps the canonical copy at `infra/Dockerfile` and writes the root copy onto the deploy commit only — `.gitignore` lists `/Dockerfile` for exactly that reason. Every invocation stopped at `missing Dockerfile` before reaching the Hub. | It was ported from a sibling project whose Dockerfile genuinely is at the root, and had never been executed here. | Requirement dropped; `apps/api/pyproject.toml` required instead. `--check` runs the preflight with no credentials so CI gates it. |
+| 2 | **The first deploy produced a Space with no Dockerfile.** `push_with_space_config` writes the root copy and then `git add -A` — which honours `.gitignore`, and therefore silently dropped the one file the Space build reads. The Space reported `NO_APP_FILE` with nothing to explain it. | The same porting assumption: with a *tracked* Dockerfile, `git add -A` includes it. The container CI job cannot catch this either — it builds `-f infra/Dockerfile`, which is content-identical. | `git add -f Dockerfile`, plus a `git ls-tree` assertion on the deploy commit *before* the push. No root Dockerfile, no push. |
+| 3 | **The deploy script committed the working tree by itself,** under whatever `--message` defaulted to. An unreviewed edit could reach a deployment and land on `main` labelled "Deploy LedgerLens" — which is how fix #2 was first recorded, before it was amended. | It reads as a convenience until it ships something that was never gated. | It refuses a dirty tree and names the files. A deploy ships what has been committed and has passed CI. |
+| 4 | **Nothing in CI built the container.** Every other gate passes with a broken Dockerfile or an over-eager `.dockerignore`; the first symptom would have been a failed Space build, *after* the running deployment had been replaced. | `make audit` never builds an image. | A `container` job builds it, boots it against real PostgreSQL, and asserts what only a running container shows — see below. |
+
+### The container gate
+
+`/health` answers `200` with `"status": "degraded"` when the database is unreachable, so a
+naive smoke test passes against a container whose schema bootstrap is broken. The job
+therefore asserts the body, not the status code.
+
+```
+Container — build, boot against Postgres, serve
+  deploy preflight            every file the Space build reads is present
+  build                       21 steps, 546 MB
+  boot against Postgres       healthy after 4s: {"status":"ok",...,"database":"up"}
+  serve                       /v1/stats, /v1/documents, /openapi.json
+  CORS                        ledgerlens-jet.vercel.app echoed; evil.example refused
+  least privilege             uid 1000, user app, app/devtools absent
+```
+
+### A documented behaviour that is narrower than documented
+
+`routers/health.py` says `/health` "reports `degraded` rather than failing when the database
+is unreachable, so a platform health check can distinguish 'the process is up but its
+dependency is down' from 'the process is gone'." That is true only *after* a successful
+boot. `lifespan` calls `wait_for_database` before serving anything, and when that exhausts
+its retries the application exits — which is precisely what the first Space boot did, with
+no `DATABASE_URL` set:
+
+```
+database_not_ready_retrying  attempt 1..4
+database_unreachable         attempts=5
+Application startup failed. Exiting.
+```
+
+That is defensible behaviour — failing fast on a misconfiguration beats serving a hollow
+service — but it is not what the docstring describes, and the distinction matters to whoever
+reads a health check. Both `/health`'s docstring and the README now say "goes away" rather
+than "is down". No code changed: the fix is to the claim, not to the behaviour.
+
+### Verified from outside
+
+`make verify-hosted`, ten checks, first run against the live stack:
+
+```
+  PASS  UI is public                   HTTP 200
+  PASS  CSP points at the API          connect-src names the API host
+  PASS  API health                     v1.0.0 · prod · db up · llm offline · langfuse enabled
+  PASS  CORS is locked                 UI origin allowed, evil.example refused
+  PASS  ledger reconciles              32 documents · 29 done · 3 in review · 2 open flags
+  PASS  nothing invalid committed      32 documents, every one routed by its own result
+  PASS  review queue explains itself   2 flags, all with severity + evidence + reason
+  PASS  upload · extract · validate    NEEDS_REVIEW · vision lane · 0/5 checks · 6/6 stages · 554 ms
+  PASS  re-upload is idempotent        same SHA-256 -> duplicate, ledger unchanged
+  PASS  rejections are typed           HTTP 415 unsupported_media_type, no stack trace
+```
+
+Two of those are worth naming. **`nothing invalid committed`** is the product's central
+claim turned into an assertion and run across the whole live ledger, not a fixture: no
+document may be `DONE` with a failed check or a high-severity flag against it, and none may
+sit in review with nothing failing. Every test proving that runs on data the test created;
+this one runs on whatever is actually in production. It passed on all 32.
+
+**`upload · extract · validate`** is the thesis executing in production: a degraded scan,
+routed to the vision lane, read by nobody, five presence checks failed, `NEEDS_REVIEW`, six
+of six stages in the audit trail, 554 ms — verified and refused rather than committed.
+
+### It does not clean up, and cannot
+
+`audit_log` is append-only, enforced by a trigger that raises on `UPDATE` and `DELETE`
+including the cascade from `documents` (§4b). There is no way to delete a document, and a
+hosted check is not worth a back door through the central claim.
+
+Pinning the bytes replaces deletion. The verification document is the same file every run,
+so `UNIQUE(file_hash)` means run one creates a record and every run afterwards is told
+`duplicate` and creates nothing: the ledger gains one permanent, clearly-named row and never
+grows. The clean-up step becomes a live proof of the idempotency guarantee, which is a
+better check than the one it replaces. `--fresh` forces a genuine full-pipeline run and
+says that it adds a row.
+
+### Live latency
+
+Measured from `/v1/stats` against the deployed ledger — the same query the KPI cards use:
+
+```
+avg 398.7 ms · p95 535.8 ms   over 29 terminal documents
+```
+
+This is in-region pipeline time. §4b explains why a figure seeded from a laptop would
+instead measure the seeder's distance from Virginia.
+
+### Deployment configuration is in version control
+
+Deleting `render.yaml` removed a reviewable record of what production runs, and setting the
+Space's variables through its settings page would have replaced it with nothing. The
+non-secret configuration is therefore a dict — `SPACE_VARIABLES` in
+`scripts/deploy_space.py` — applied on every deploy, and
+`test_space_variables_validate_against_settings` builds a real `Settings` from it. That test
+replaces the render-blueprint test one-for-one, and keeps the defect that test caught in
+range: `ENVIRONMENT: production` is not one of `dev|test|prod`, and once killed a container
+at import before it served a request. It additionally asserts the two values no type can
+check — that CORS names an origin rather than a wildcard, and that the proxy count is
+exactly 1.
+
+Secrets are set by hand and are not in this repository, which is public.
+
+---
+
 ## 5. Evaluation (spec §7, §8)
 
 ```
@@ -290,9 +423,15 @@ document, so the harness scores extraction rather than grading its own homework.
 | Anomaly precision | **100.0%** |
 | Anomaly recall | **100.0%** |
 | Anomaly F1 | **100.0%** |
-| Mean latency | 22 ms |
-| p95 latency | 33 ms |
+| Mean latency | 13 ms |
+| p95 latency | 24 ms |
 | Cost | $0.00 (offline mode) |
+
+*(Re-run 2026-07-31; report at `eval/results/eval-offline-2026-07-31.json`. Accuracy is
+unchanged. The latency figures moved from 22/33 ms to 13/24 ms between two runs on the same
+machine with no code change — which is the useful thing to know about them: at this scale
+they measure the host's mood, not the pipeline. The live in-region figures in §4c are the
+ones worth quoting.)*
 
 **Scope, stated precisely.** These are **offline-baseline** numbers over the **7 of 10**
 documents this mode can read. The other 3 are scans with no text layer: without a vision
@@ -328,25 +467,7 @@ Expected on the live run: the 3 scans become readable, all 10 documents score, a
 z-score anomaly on `EV-GM-999` becomes scorable. Cost should land around $0.01–0.03 per
 vision document, and the résumé numbers in §5 should be replaced with the live figures.
 
-**Terraform** is now verified by the CLI, not just structurally:
-
-```
-$ cd infra/terraform && terraform version
-Terraform v1.15.8 on darwin_arm64
-
-$ terraform init -backend=false
-Terraform has been successfully initialized!
-
-$ terraform validate
-Success! The configuration is valid.
-
-$ terraform fmt -check -recursive
-# clean
-```
-
-`terraform apply` itself is still unrun — it would create billable Google Cloud resources,
-so it stays a deliberate manual step. The provider lock file is committed so the first apply
-resolves the same provider versions that were validated here.
+Everything else in this file is measured.
 
 ---
 
@@ -361,7 +482,7 @@ resolves the same provider versions that were validated here.
 - Pipeline stages are exactly `Ingest → Route → Extract → Validate → Screen → Ledger`.
 - Tables are exactly `documents · extractions · anomalies · audit_log · failed_jobs`
   (plus `llm_traces` for the observability panel).
-- The container listens on **7860** for Hugging Face Spaces and honours `$PORT` for Cloud Run.
+- The container listens on **7860** for Hugging Face Spaces and honours `$PORT`, so the image is not tied to that host.
 - The seed corpus is exactly **30** invoices across **6** vendors with the planted
   near-duplicate pair *inside* the thirty.
 - The eval corpus is exactly **10** documents including **2 near-duplicates** and
@@ -389,23 +510,63 @@ affected. The full rationale and the intent-by-intent table are recorded as **D-
 
 ## 8. Codebase
 
-| | |
-|---|---|
-| Python source | 38 files · 7,411 lines |
-| Python tests | 1,294 lines · 107 tests |
-| TypeScript source | 15 files · 2,501 lines |
-| Container image | 546 MB, non-root, healthcheck green |
-| Suppression comments | 3 in Python (each justified inline), 0 in TypeScript |
+Counted, not remembered — every figure below is `find`/`wc` output taken at the time of
+writing. The previous revision of this table claimed 7,411 source lines, 1,294 test lines
+and **107 tests** while §1(c) of the same file said 111, and the README said 109. Three
+numbers for one quantity means none of them was being checked, so they are now derived
+from the commands printed beside them.
+
+| | | Command |
+|---|---|---|
+| Python source | 38 files · 7,637 lines | `find app scripts -name '*.py' \| wc -l` |
+| Python tests | 6 files · 1,520 lines · **111 tests** | `pytest -o addopts='' -q` |
+| TypeScript source | 15 files · 2,686 lines | `find src -name '*.ts*'` |
+| Container image | 546 MB, non-root (uid 1000), healthcheck green | `docker build -f infra/Dockerfile .` |
+| Suppression comments | **6** `noqa` in shipped Python (each justified inline), **0** `type: ignore`, 0 in TypeScript | `grep -rn noqa app scripts` |
+
+The suppression count was previously given as 3. It is 6, and always was — the table in
+§1(a) lists all six across four rules, so the two halves of this document disagreed.
+None is a blanket suppression and none has been added; only the count was wrong.
 
 ---
 
 ## Verdict
 
 Every gate that can be run without a live model key **passes**, including all three
-post-build checks from spec §9. Two items are explicitly **pending a key** and are marked as
-such everywhere they appear — in this file, in the evaluation report JSON, and in the UI's
-own mode badge. Nothing in this repository reports an unverified result as verified.
+post-build checks from spec §9, and the deployment is now verified from outside by ten
+assertions against the running stack rather than assumed to work because it once did.
 
-The spec is implemented as written with **one** deviation — the §6 colour palette, recorded
-above and as D-1 in the conformance doc. It is presentation-only, owner-approved, and
-preserves every stated intent of that section.
+Two items remain explicitly **pending a key** — the vision lane end to end, and live
+accuracy and cost — and are marked as such everywhere they appear: in this file, in the
+evaluation report JSON, and in the UI's own mode badge. Nothing in this repository reports
+an unverified result as verified.
+
+The spec is implemented as written with **two** deviations, both deliberate and both
+recorded in the conformance doc: **D-1**, the §6 colour palette, presentation-only and
+owner-approved; and **D-2**, one API host rather than three, because the two that were
+deleted had never been applied and publishing untested deployment paths next to a real one
+gives the reader no way to tell which is which.
+
+### What this pass found, and did not paper over
+
+The second pass was a migration, and migrations are where documentation and reality come
+apart. Four deployment defects are in §4c, every one of them found by running the tooling
+rather than reading it, and every one of them invisible to `make audit` — including a deploy
+script that could never have run, and a first deploy that produced a Space with no
+Dockerfile in it.
+
+Two further findings are corrections to this document rather than to the code:
+
+- **Its own counts had drifted.** §8 claimed 107 tests where §1(c) said 111 and the README
+  said 109; three source-line figures were stale; and the suppression count was given as 3
+  where the table above it lists 6. Nothing was broken — but a file whose job is to be
+  trusted about numbers had four wrong ones in it, which is the failure mode this project
+  exists to argue against. Every figure in §8 is now printed by the command beside it.
+- **A claim was broader than the behaviour.** `/health` was documented as degrading rather
+  than failing when the database is unreachable. It degrades when the database *goes away*;
+  a process that starts without one exits before serving anything, which is what the first
+  Space boot did. The behaviour is right and unchanged. The sentence was wrong, and is now
+  narrower.
+
+The honest summary of both: the code was in better shape than the deployment tooling, and
+this file was in better shape than its own arithmetic.

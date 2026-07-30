@@ -1,8 +1,15 @@
 """Liveness and readiness.
 
-`/health` reports `degraded` rather than failing when the database is
-unreachable, so a platform health check can distinguish "the process is up but
-its dependency is down" from "the process is gone".
+`/health` reports `degraded` rather than failing when the database *goes away*,
+so a platform health check can distinguish "the process is up but its dependency
+is down" from "the process is gone".
+
+The wording is deliberate. This only covers a database that was reachable at boot
+and later was not. A process that starts with an unreachable database never gets
+here at all: `lifespan` awaits `wait_for_database` before serving anything, and
+exits when that exhausts its retries. Failing fast on a misconfiguration beats
+serving a service that cannot do its job — but it does mean `degraded` is a
+report about a running system, never about a broken deployment.
 """
 
 from __future__ import annotations
