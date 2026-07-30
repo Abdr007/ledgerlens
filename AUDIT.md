@@ -81,10 +81,10 @@ each with the reason written next to it:
 $ cd apps/web && npm run typecheck        # tsc --noEmit
 $ cd apps/web && npm run lint             # eslint . --max-warnings 0
 $ cd apps/web && npm run build
- ✓ Compiled successfully in 9.7s
+ ✓ Compiled successfully in 1154ms
  ✓ Generating static pages (4/4)
 Route (app)                   Size  First Load JS
-┌ ○ /                       195 kB         297 kB
+┌ ○ /                       196 kB         298 kB
 └ ○ /_not-found              995 B         103 kB
 ```
 
