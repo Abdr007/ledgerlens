@@ -142,9 +142,21 @@ UPDATE audit_log SET payload = '{}' WHERE id = 1;
 -- ERROR:  audit_log is append-only; UPDATE is not permitted
 ```
 
-> An append-only log enforced in application code is a convention — anyone with a database
-> URL can walk around it. Enforced by a trigger, it survives someone with `psql` and a bad
-> afternoon. That is the difference between a feature and a control.
+> An append-only log enforced in application code is a convention — the application can
+> always choose not to honour it. Enforced by a trigger, it survives someone with `psql`
+> and a bad afternoon. That is the difference between a feature and a control.
+
+If they push — and a good interviewer will — concede the boundary before they find it:
+
+> It stops `DELETE`. It does not stop an owner disabling the trigger first, and this
+> service connects as the table owner because it creates its own schema on boot. So the
+> honest claim is that the application cannot rewrite history, not that nobody can. The
+> fix is two roles — one that owns and migrates, one that only reads and writes — and I
+> haven't applied it because it costs the clone-and-run property. It's written up as a
+> residual in AUDIT.md rather than left for someone to find.
+
+Volunteering that is worth more than the control itself. It is the same instinct the
+product is built on: state what is verified, and name what is not.
 
 ### 6 · Upload the same file twice (45s)
 

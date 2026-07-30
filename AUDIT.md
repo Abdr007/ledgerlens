@@ -479,6 +479,50 @@ against.
 That is the general lesson from this pass, stated once: **check the behaviour you
 control, not the header something else can rewrite.**
 
+### Residual 1 — the append-only guard is beyond the *application*, not beyond its role
+
+The demo line is: *"a database trigger rejects `UPDATE` and `DELETE`, so history cannot
+be rewritten even from a direct SQL session."* The first half is verified above against
+the hosted database, including the cascade from `documents`. The second half is too
+broad, and this pass found the gap:
+
+```
+connected as     : neondb_owner
+audit_log owner  : neondb_owner
+superuser        : False
+
+can this role disable the append-only trigger?
+  YES — the application's own role can disable it and then delete.
+        (executed inside a transaction and rolled back; nothing was changed)
+```
+
+A trigger stops `DELETE`. It does not stop `ALTER TABLE audit_log DISABLE TRIGGER`
+followed by `DELETE`, and **table ownership is exactly the privilege that permits
+that** — so anyone holding `DATABASE_URL` can erase history in two statements rather
+than one. The application holds it, which means a SQL-injection reaching this
+connection, or a leaked connection string, defeats the control that the product is
+partly sold on.
+
+**Why it is like this, precisely.** The service creates its own schema on first boot —
+`init_schema` runs `create_all` plus the hardening DDL, which is what makes "no
+migration step" true and what makes a fresh Neon project work with one environment
+variable. DDL requires ownership. Ownership permits disabling triggers. The
+convenience and the weakness are the same privilege; it is a design tension, not an
+oversight, and it cannot be closed by changing application code.
+
+**The fix is two roles, and it is not applied here.** A migration role that owns the
+tables and runs the DDL, and an application role granted only `SELECT`/`INSERT`/
+`UPDATE` on them and nothing else. The trigger then sits outside the reach of the
+credential the service actually carries, and the demo claim becomes true as stated.
+The cost is that schema creation stops being automatic, which is a real trade against
+the "clone it and run it" property the rest of this project works hard for.
+
+Until it is applied, the honest form of the claim is: **the audit log cannot be
+rewritten by the application, and cannot be deleted by anyone who has not first taken
+ownership-level action that a database audit would show.** [DEMO.md](./DEMO.md) states
+it that way, and the `psql` receipt it offers on stage is still exactly what a viewer
+would see.
+
 ### It does not clean up, and cannot
 
 `audit_log` is append-only, enforced by a trigger that raises on `UPDATE` and `DELETE`
