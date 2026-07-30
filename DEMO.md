@@ -165,7 +165,7 @@ Drag the exact same PDF in again. It returns immediately, no reprocessing, same 
 | Field-level accuracy | **100.0%** (63/63) |
 | Line-item accuracy | **100.0%** (23/23) |
 | Anomaly precision / recall / F1 | **100% / 100% / 1.00** |
-| Tests | **112**, real PostgreSQL, 0 skipped |
+| Tests | **137**, real PostgreSQL, 0 skipped |
 | Live latency | avg **399 ms**, p95 **536 ms** |
 
 Say the scope out loud before they ask:

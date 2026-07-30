@@ -33,7 +33,7 @@ TEST_DATABASE_URL='postgresql+asyncpg://…-pooler….neon.tech/ledgerlens_test?
 |---|---|---|---|
 | **a** | `ruff` + `mypy` pass with zero issues | `make lint typecheck` | **PASS** |
 | **b** | `eslint` + `tsc --noEmit` pass with zero issues | `make web-lint web-typecheck` | **PASS** |
-| **c** | `pytest` green, incl. validation math, idempotent re-upload, duplicate detection, and status transitions under two concurrent requests | `make test` | **PASS** — 112 passed |
+| **c** | `pytest` green, incl. validation math, idempotent re-upload, duplicate detection, and status transitions under two concurrent requests | `make test` | **PASS** — 137 passed |
 | **d** | End-to-end: uploading a document returns validated structured data and the UI animates through all stages | live run, §4 below | **PASS** (text lane) · **PENDING KEY** (vision lane) |
 | **e** | Planted duplicate raises a **HIGH**-severity anomaly with an explanation | `make seed`; `test_planted_duplicate_raises_a_high_severity_anomaly` | **PASS** |
 | **f** | `README.md` with mermaid diagram, local dev, and a step-by-step free deploy | [README.md](./README.md) | **PASS**, with one deliberate deviation — the spec asked for Cloud Run *and* Spaces *and* a Terraform module; one host is deployed and the other two are deleted rather than published untested. Recorded as **D-2** in [SPEC-CONFORMANCE](./docs/SPEC-CONFORMANCE.md), and §4c below |
@@ -103,11 +103,11 @@ A headless browser was not available on this machine, so the browser devtools co
 not opened directly. Open <http://localhost:3000> and check it in one keystroke; every
 class of problem that would appear there is covered by a gate above.
 
-### (c) Tests — 112, against real PostgreSQL
+### (c) Tests — 137, against real PostgreSQL
 
 ```
 $ make test
-112 passed
+137 passed
 ```
 
 The suite **provisions its own database**. If `ledgerlens_test` does not exist, it is
@@ -122,6 +122,7 @@ warrants it: the PostgreSQL *server* itself being unreachable.
 | `test_security.py` | 47 | Magic-byte whitelist; declared-type spoofing; size and empty-file limits; filename sanitisation (traversal, control chars, bidi override); PDF page and pixel bombs; secret redaction across 10 credential shapes; prompt-injection resistance; reserved-`LogRecord`-key safety plus a static sweep of every `extra=` in shipped code; the deploy variables validated against the settings schema, including a wildcard-CORS and proxy-count assertion; blank secrets treated as absent |
 | `test_pipeline_integration.py` | 15 | Full pipeline on real Postgres; idempotency; **8 concurrent uploads**; **6 concurrent processors**; status-transition counts; `failed_jobs`; append-only trigger; planted duplicate; no false positives; re-screen idempotence |
 | `test_api.py` | 18 | Error envelopes; CORS allow and deny; security headers; rate limiting per IP and its isolation; typed 404/422; OpenAPI completeness |
+| `test_deploy_space.py` | 25 | The Spaces deploy contract: preflight, the generated root Dockerfile and the `.gitignore` collision that hid it, Space exclusions, no secret-shaped name in a public file, the frontmatter length rules the Hub enforces in a pre-receive hook, and each branch of the push-failure diagnosis |
 
 Integration tests use a **real PostgreSQL 16** database, never SQLite. Every guarantee this
 project makes — `UNIQUE(file_hash)`, `INSERT … ON CONFLICT`, the conditional status
@@ -295,6 +296,11 @@ Five defects. Four are in deployment tooling and one is in the running service; 
 one of them was found by running the thing rather than reading it, and every one of
 them passed `make audit` on the way in.
 
+`scripts/deploy_space.py` carried two of them and had **no tests at all** — it was ported
+from a sibling project, which does test it, and the tests were not ported with it. It now
+has 25, including a mutation-checked pair pinning each of the two defects below: reverting
+either fix fails the test written for it and nothing else.
+
 | # | Defect | Why it was invisible | Fix |
 |---|---|---|---|
 | 1 | **The deploy script could never run.** Its preflight required a `Dockerfile` at the repository root. This project keeps the canonical copy at `infra/Dockerfile` and writes the root copy onto the deploy commit only — `.gitignore` lists `/Dockerfile` for exactly that reason. Every invocation stopped at `missing Dockerfile` before reaching the Hub. | It was ported from a sibling project whose Dockerfile genuinely is at the root, and had never been executed here. | Requirement dropped; `apps/api/pyproject.toml` required instead. `--check` runs the preflight with no credentials so CI gates it. |
@@ -412,6 +418,7 @@ Three changes, in increasing order of how much they matter:
 | Change | Effect |
 |---|---|
 | `client_identity` compares the chain it observes against the chain it was configured for and logs `proxy_depth_mismatch` **once**, naming both numbers and the value to set | The fault becomes visible instead of silent |
+| `SPACE_VARIABLES` keeps `TRUSTED_PROXY_COUNT=1` marked **unconfirmed** rather than being changed to 2 on a different host's behaviour | Carrying the number over would repeat the defect that produced it |
 | `test_a_deeper_proxy_chain_than_configured_is_reported` pins the resolution *and* the warning, including that a matching depth stays quiet and a second request does not re-log | The behaviour cannot regress |
 | `make verify-hosted` asserts the limit **binds** against the deployment | The fault cannot recur unnoticed, which is the only one of the three that would have caught it |
 
@@ -580,7 +587,7 @@ from the commands printed beside them.
 | | | Command |
 |---|---|---|
 | Python source | 38 files · 7,637 lines | `find app scripts -name '*.py' \| wc -l` |
-| Python tests | 6 files · 1,596 lines · **112 tests** | `pytest -o addopts='' -q` |
+| Python tests | 7 files · 1,839 lines · **137 tests** | `pytest -o addopts='' -q` |
 | TypeScript source | 15 files · 2,686 lines | `find src -name '*.ts*'` |
 | Container image | 546 MB, non-root (uid 1000), healthcheck green | `docker build -f infra/Dockerfile .` |
 | Suppression comments | **6** `noqa` in shipped Python (each justified inline), **0** `type: ignore`, 0 in TypeScript | `grep -rn noqa app scripts` |

@@ -3,7 +3,7 @@
 **Invoices in, verified data out — or a human review queue. Never a confident guess.**
 
 [![CI](https://github.com/Abdr007/ledgerlens/actions/workflows/ci.yml/badge.svg)](https://github.com/Abdr007/ledgerlens/actions/workflows/ci.yml)
-![tests](https://img.shields.io/badge/tests-112-c8ff2f)
+![tests](https://img.shields.io/badge/tests-137-c8ff2f)
 ![field accuracy](https://img.shields.io/badge/field%20accuracy-100%25%20(63%2F63)-c8ff2f)
 ![anomaly F1](https://img.shields.io/badge/anomaly%20F1-1.00-c8ff2f)
 ![mypy](https://img.shields.io/badge/mypy-strict-8b7cf6)
@@ -171,7 +171,7 @@ harness scores extraction rather than grading its own homework.
 | Overall field accuracy | **100.0%** (63/63) |
 | Line-item accuracy | **100.0%** (23/23) |
 | Anomaly precision / recall / F1 | **100% / 100% / 1.00** |
-| Tests | **112**, on real PostgreSQL, 0 skipped |
+| Tests | **137**, on real PostgreSQL, 0 skipped |
 | Container image | 546 MB, non-root (uid 1000), healthcheck green |
 
 **Scope, stated precisely.** Those are **offline-baseline** numbers over the **7 of 10**
@@ -218,6 +218,9 @@ value production would reject fails a test rather than a remote build.
 The four **secrets** are set by hand, once, under Space → Settings → Variables and secrets:
 `DATABASE_URL`, `ANTHROPIC_API_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`. They are
 deliberately not in this repository, which is public.
+
+The full walkthrough — including the two mechanisms that have failed here, and what to do
+when each does — is [docs/DEPLOY.md](docs/DEPLOY.md).
 
 > **`NEXT_PUBLIC_API_BASE_URL` must exist before the first build.** `next.config.ts` derives
 > the CSP's `connect-src` from it at *build* time. Deploy without it and the shipped policy
@@ -298,11 +301,12 @@ ledgerlens/
 │     │  ├─ routers/           documents · anomalies · stats · health · projections · rate limits
 │     │  └─ devtools/          document generator + corpora (never imported by the request path)
 │     ├─ scripts/seed.py       30 invoices through the real pipeline
-│     └─ tests/                112 tests · unit + integration on real PostgreSQL
+│     └─ tests/                137 tests · unit + integration on real PostgreSQL
 ├─ eval/run_eval.py            field accuracy + anomaly precision/recall
 ├─ scripts/                    deploy_space · verify_hosted · shot (README screenshots)
 ├─ automation/n8n/             exported workflow
 ├─ infra/                      Dockerfile · docker-compose.dev.yml
+├─ docs/DEPLOY.md              how the Space and Vercel are actually deployed
 ├─ docs/SPEC-CONFORMANCE.md    every spec requirement, mapped to where it lives
 ├─ DEMO.md                     the walkthrough, and a timed video script
 ├─ AUDIT.md                    every gate, with results

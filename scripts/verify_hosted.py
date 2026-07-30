@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pre-flight the deployed stack, the way `make audit` pre-flights the source.
 
-`make audit` proves 112 tests against a local PostgreSQL. Nothing proved anything
+`make audit` proves 137 tests against a local PostgreSQL. Nothing proved anything
 against the deployment, so every hosted failure so far was found by opening the
 page and looking. Two of the worst leave no trace in the API's logs at all,
 because in both cases no request ever reaches the API: a UI redirecting every
