@@ -180,7 +180,7 @@ model there is nothing to read, and the pipeline correctly routed them to `NEEDS
 rather than inventing fields. They are excluded from scoring and named in the report, which
 records `"mode": "offline"` so an offline figure can never be mistaken for a live one.
 
-Live, in-region pipeline latency across the deployed ledger: **avg 399 ms, p95 536 ms**
+Live, in-region pipeline latency across the deployed ledger: **avg 101 ms, p95 134 ms**
 (read from `/v1/stats`, which is also what the KPI cards show).
 
 See [AUDIT.md](./AUDIT.md) for every gate with its result, including the defects found by

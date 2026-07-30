@@ -523,6 +523,31 @@ ownership-level action that a database audit would show.** [DEMO.md](./DEMO.md) 
 it that way, and the `psql` receipt it offers on stage is still exactly what a viewer
 would see.
 
+### What this audit itself left behind, and what was done about it
+
+Five documents. The ad-hoc probe scripts used during this pass generated unique bytes per
+request, so four header probes and one concurrency probe became permanent rows in a ledger
+that cannot delete — `NEEDS_REVIEW`, no vendor, sitting at the top of the demo's own
+ledger view. Caused by the auditor, not the system.
+
+The permanent tooling does not have this failure mode, which is the difference worth
+recording: `verify_hosted.py` uploads **pinned** bytes, so it creates one row on its first
+run ever and none afterwards, and it drives the rate-limit check with *rejected* uploads,
+which spend budget and write nothing.
+
+Cleanup was a genuine decision rather than an obvious one, because the three available
+options were not equivalent:
+
+| Option | Why not / why |
+|---|---|
+| Leave them | Zero risk, but a portfolio demo that opens on rows named `hosted-probe.jpg` |
+| `ALTER TABLE … DISABLE TRIGGER`, delete 5 rows | Possible — Residual 1 proves the role can. Rejected: rewriting audit history on the artefact whose headline claim is that audit history cannot be rewritten is not a trade worth making for cosmetics |
+| **TRUNCATE and reseed through the API** | **Chosen.** Resetting an environment wholesale and visibly is a different act from editing a record, and it is the path `make reset` already documents |
+
+The reseed is recorded above. Final state: 32 documents, 29 `DONE`, 3 `NEEDS_REVIEW`,
+2 open flags — the ledger's shape before this audit touched it, with in-region latencies
+and both anomaly types present.
+
 ### It does not clean up, and cannot
 
 `audit_log` is append-only, enforced by a trigger that raises on `UPDATE` and `DELETE`
@@ -541,11 +566,29 @@ says that it adds a row.
 Measured from `/v1/stats` against the deployed ledger — the same query the KPI cards use:
 
 ```
-avg 398.7 ms · p95 535.8 ms   over 29 terminal documents
+avg 101 ms · p95 134 ms   over 29 terminal documents
 ```
 
-This is in-region pipeline time. §4b explains why a figure seeded from a laptop would
-instead measure the seeder's distance from Virginia.
+This is in-region pipeline time, and it is a *fourth* of what the previous host recorded
+(399 ms / 536 ms). The corpus is byte-identical and the code is unchanged, so the
+difference is the host: a shared free-tier CPU further from the database, replaced by a
+2-vCPU container beside it.
+
+It is also the number that made the seeding method matter. §4b measured a document at
+roughly 42 database round trips, so seeding a Neon database from a laptop records **~8.9 s
+per document** — a KPI card reporting the seeder's distance from Virginia rather than
+anything about the pipeline. `apps/api/scripts/seed_hosted.py` therefore renders the corpus
+locally and *uploads it through the deployed API*, which processes each document beside its
+database. Paced at 6.3 s to stay inside the 10/minute ingestion limit rather than raising
+the production limit for convenience: the seed goes through the same door as everyone else.
+
+```
+30 documents · 29 DONE · 1 NEEDS_REVIEW · 0 FAILED · 1 anomalies
+avg 101 ms · p95 136 ms (in-region, recorded by the API) · wall clock 246s
+```
+
+The planted near-duplicate fired on upload 5, against four priors already in the ledger —
+which is the whole reason the corpus is uploaded oldest-first.
 
 ### Deployment configuration is in version control
 

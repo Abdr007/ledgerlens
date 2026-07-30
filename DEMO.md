@@ -93,7 +93,7 @@ Point at three things on the result card:
   guessed, because that is a fact you can get for free and a model can get wrong.
 - **`is_valid: true`** and the individual checks — `line_items_sum_to_subtotal`,
   `subtotal_plus_tax_equals_total`, `uae_vat_rate`. Each carries expected vs observed.
-- **Latency.** ~360 ms end to end, in region.
+- **Latency.** ~100 ms end to end, in region — the whole six-stage journey including every database write.
 
 ### 3 · The duplicate (60s)
 
@@ -178,7 +178,7 @@ Drag the exact same PDF in again. It returns immediately, no reprocessing, same 
 | Line-item accuracy | **100.0%** (23/23) |
 | Anomaly precision / recall / F1 | **100% / 100% / 1.00** |
 | Tests | **141**, real PostgreSQL, 0 skipped |
-| Live latency | avg **399 ms**, p95 **536 ms** |
+| Live latency | avg **101 ms**, p95 **134 ms** |
 
 Say the scope out loud before they ask:
 
@@ -262,7 +262,7 @@ of a system that claims to be auditable looks like something was removed.
 | **0:10–0:40** | Scroll to the ledger. Hold on the **top row** — `hosted-verification.jpg`, vendor `—`, total `—`, **NEEDS REVIEW**. | "Start with the failure. This is a phone photo the system could not read. Every demo you have seen would show you a plausible vendor and a plausible total here, because a vision model handed an unreadable page will produce them. This one produced nulls, failed five checks, and routed to a human. The column is empty because the truth is empty." |
 | **0:40–0:55** | Open its audit trail. Point at the six stages and `validation_failed`. | "And it says exactly why — five presence checks, named individually, on an append-only trail." |
 | **0:55–1:25** | Drag in the clean invoice. Let the six-stage rail run. Do not talk over the animation. | "Now the same pipeline on something readable. Ingest, route, extract, validate, screen, ledger. Those nodes are not a timer — the UI polls the API and the states are projected from the audit log, so if the backend stalls, the rail stalls." |
-| **1:25–1:45** | Result card: lane, the individual validation checks, latency. | "Text lane, because PyMuPDF *measured* a text layer rather than asking a model to guess. Line items sum to subtotal, subtotal plus tax equals total, VAT is 5% — each with expected and observed. Three hundred and sixty milliseconds." |
+| **1:25–1:45** | Result card: lane, the individual validation checks, latency. | "Text lane, because PyMuPDF *measured* a text layer rather than asking a model to guess. Line items sum to subtotal, subtotal plus tax equals total, VAT is 5% — each with expected and observed. About a hundred milliseconds, end to end." |
 | **1:45–2:05** | Review queue. Read the amount-outlier reason aloud, in full. | "Eighty-six standard deviations above normal for this vendor: sixty-five thousand against an average of sixteen thousand eight hundred across five prior invoices. Nobody actions a score of 86.8. They action that sentence — and the same code produced both, so the explanation cannot drift from the number." |
 | **2:05–2:20** | Audit drawer. Hold on the append-only footer line. | "A database trigger rejects UPDATE and DELETE. Not application code — a trigger. This survives someone with a database URL and a bad afternoon." |
 | **2:20–2:30** | Drag the **same** file in again. It returns instantly, same id, no reprocessing. | "Same bytes, same SHA-256, same record. It is a unique constraint with insert-on-conflict, so two tabs racing the same file cannot make two rows. The database decides; the application does not get a vote." |
