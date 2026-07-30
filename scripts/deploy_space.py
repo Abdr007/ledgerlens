@@ -138,9 +138,24 @@ def push_with_space_config(branch: str) -> subprocess.CompletedProcess[str]:
             (REPO_ROOT / "infra" / "Dockerfile").read_text(encoding="utf-8"), encoding="utf-8"
         )
         run("git", "add", "-A")
+        # `-f` because `.gitignore` lists `/Dockerfile` — deliberately, since the root
+        # copy is generated and must never land on a GitHub commit. Plain `git add -A`
+        # honours that and silently drops the one file the Space build reads, which
+        # produces a Space stuck at NO_APP_FILE and no error anywhere to explain it.
+        run("git", "add", "-f", "Dockerfile")
         for excluded in SPACE_EXCLUDE:
             run("git", "reset", "-q", "--", excluded, check=False)
         run("git", "commit", "-q", "-m", "LedgerLens — deployed tree")
+
+        # Assert the tree before handing it to the Hub. Everything above is a
+        # side effect on a temporary branch; a missing file here costs a build,
+        # a wait, and a stage the Hub reports as NO_APP_FILE rather than as the
+        # missing Dockerfile it is.
+        tracked = run("git", "ls-tree", "--name-only", "HEAD").stdout.split()
+        if "Dockerfile" not in tracked:
+            msg = "the deploy commit has no root Dockerfile; the Space would never build"
+            raise RuntimeError(msg)
+
         return run("git", "push", "--force", "space", f"{temp}:main", check=False)
     finally:
         readme.write_text(original, encoding="utf-8")
@@ -165,7 +180,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--space", default="ledgerlens", help="Space name (not the full id)")
     parser.add_argument("--public", action="store_true", help="make the Space public")
-    parser.add_argument("--message", default="Deploy LedgerLens", help="commit message")
     parser.add_argument(
         "--check",
         action="store_true",
@@ -213,12 +227,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"  ready  {url}")
 
-    # Commit whatever is outstanding. A Space is deployed by pushing a git history, so
-    # there is nothing to push until the work is committed.
-    if run("git", "status", "--porcelain", check=False).stdout.strip():
-        run("git", "add", "-A")
-        run("git", "commit", "-m", args.message, check=False)
-        print("  committed the working tree")
+    # A Space is deployed by pushing a git tree, so the tree has to be committed
+    # first. This used to do that for you, which meant an unreviewed edit could
+    # reach a deployment and land on `main` under a generic message. A deploy
+    # should ship what has been committed and gated; refusing is the safe answer,
+    # and naming the files makes it a one-line fix rather than a puzzle.
+    dirty = run("git", "status", "--porcelain", check=False).stdout.strip()
+    if dirty:
+        print("\n  refusing to deploy: the working tree is not clean\n")
+        for line in dirty.splitlines():
+            print(f"    {line}")
+        print("\n  Commit or stash these, let CI go green, then deploy.")
+        return 1
 
     remote_url = f"https://huggingface.co/spaces/{repo_id}"
     existing = run("git", "remote", check=False).stdout.split()
@@ -229,7 +249,13 @@ def main(argv: list[str] | None = None) -> int:
 
     branch = run("git", "branch", "--show-current").stdout.strip() or "master"
     print(f"  pushing {branch} -> space/main …")
-    pushed = push_with_space_config(branch)
+    try:
+        pushed = push_with_space_config(branch)
+    except RuntimeError as exc:
+        # The temporary branch is already torn down by the `finally` above, so
+        # the repository is back where it started and this is safe to re-run.
+        print(f"\n  deploy aborted: {exc}")
+        return 1
     if pushed.returncode != 0:
         stderr = pushed.stderr.strip()
         print(stderr[-1500:])
