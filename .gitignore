@@ -36,3 +36,7 @@ infra/terraform/*.tfvars
 
 # OS
 .DS_Store
+
+# Written by scripts/deploy_space.py on the deploy commit only; the canonical
+# copy lives in infra/Dockerfile.
+/Dockerfile

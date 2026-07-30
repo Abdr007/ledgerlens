@@ -1,0 +1,8 @@
+title: LedgerLens
+emoji: 🧾
+colorFrom: blue
+colorTo: gray
+sdk: docker
+app_port: 7860
+pinned: false
+short_description: "Invoices in, verified data out — or a human review queue"
