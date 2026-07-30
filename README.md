@@ -3,7 +3,7 @@
 **Invoices in, verified data out — or a human review queue. Never a confident guess.**
 
 [![CI](https://github.com/Abdr007/ledgerlens/actions/workflows/ci.yml/badge.svg)](https://github.com/Abdr007/ledgerlens/actions/workflows/ci.yml)
-![tests](https://img.shields.io/badge/tests-137-c8ff2f)
+![tests](https://img.shields.io/badge/tests-141-c8ff2f)
 ![field accuracy](https://img.shields.io/badge/field%20accuracy-100%25%20(63%2F63)-c8ff2f)
 ![anomaly F1](https://img.shields.io/badge/anomaly%20F1-1.00-c8ff2f)
 ![mypy](https://img.shields.io/badge/mypy-strict-8b7cf6)
@@ -171,7 +171,7 @@ harness scores extraction rather than grading its own homework.
 | Overall field accuracy | **100.0%** (63/63) |
 | Line-item accuracy | **100.0%** (23/23) |
 | Anomaly precision / recall / F1 | **100% / 100% / 1.00** |
-| Tests | **137**, on real PostgreSQL, 0 skipped |
+| Tests | **141**, on real PostgreSQL, 0 skipped |
 | Container image | 546 MB, non-root (uid 1000), healthcheck green |
 
 **Scope, stated precisely.** Those are **offline-baseline** numbers over the **7 of 10**
@@ -301,7 +301,7 @@ ledgerlens/
 │     │  ├─ routers/           documents · anomalies · stats · health · projections · rate limits
 │     │  └─ devtools/          document generator + corpora (never imported by the request path)
 │     ├─ scripts/seed.py       30 invoices through the real pipeline
-│     └─ tests/                137 tests · unit + integration on real PostgreSQL
+│     └─ tests/                141 tests · unit + integration on real PostgreSQL
 ├─ eval/run_eval.py            field accuracy + anomaly precision/recall
 ├─ scripts/                    deploy_space · verify_hosted · shot (README screenshots)
 ├─ automation/n8n/             exported workflow
@@ -322,7 +322,7 @@ ledgerlens/
 | **Race conditions** | `UNIQUE(file_hash)` + `INSERT … ON CONFLICT DO NOTHING`; every multi-step write in one transaction; status transitions enforced by a conditional `UPDATE` and a legal-transition table. Proven by tests that fire 8 concurrent uploads and 6 concurrent processors. |
 | **Idempotency** | Re-uploading identical bytes returns the existing record and does not reprocess. Retried calls never duplicate rows. Asserted against the live deployment on every `make verify-hosted`. |
 | **Error handling** | Every outbound call has a per-attempt timeout and 3 attempts with full-jitter backoff; only transient errors are retried. Exhausted budgets land in `failed_jobs` with a reason. Typed error responses, never stack traces. |
-| **Security** | Magic-byte file whitelist (PDF/PNG/JPEG, ≤10 MB) that overrides the client's declared type; filename sanitisation (path traversal, control characters, bidi overrides); PDF page and pixel bombs capped; prompt-injection hardening stated explicitly in the system prompt with the document fenced as untrusted data; 10 req/min/IP on ingestion; CORS locked; full CSP and security headers; secrets redacted from every log line. |
+| **Security** | Magic-byte file whitelist (PDF/PNG/JPEG, ≤10 MB) that overrides the client's declared type; filename sanitisation (path traversal, control characters, bidi overrides); PDF page and pixel bombs capped; prompt-injection hardening stated explicitly in the system prompt with the document fenced as untrusted data; 10 req/min/IP on ingestion, **verified to bind against the deployment** rather than merely configured; cross-origin writes refused **in the server**, because the platform rewrites CORS headers ([AUDIT §4c](./AUDIT.md)); full CSP and security headers; secrets redacted from every log line. |
 | **Zero warnings** | ruff + mypy `--strict` clean on the API *and* on `scripts/`; eslint + `tsc --noEmit` clean on the web; pytest green with `filterwarnings = ["error"]`. |
 | **Evaluation** | `eval/` scores a labelled set through the real pipeline and reports which mode produced the numbers. |
 | **Deployment** | Built, booted against real PostgreSQL and probed by CI on every push; verified from outside by 11 assertions against the running stack. |

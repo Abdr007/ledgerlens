@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pre-flight the deployed stack, the way `make audit` pre-flights the source.
 
-`make audit` proves 137 tests against a local PostgreSQL. Nothing proved anything
+`make audit` proves 141 tests against a local PostgreSQL. Nothing proved anything
 against the deployment, so every hosted failure so far was found by opening the
 page and looking. Two of the worst leave no trace in the API's logs at all,
 because in both cases no request ever reaches the API: a UI redirecting every
@@ -65,6 +65,7 @@ PIPELINE_DEADLINE_S: Final = 90
 HTTP_OK: Final = 200
 HTTP_ACCEPTED: Final = 202
 HTTP_FOUND: Final = 302
+HTTP_FORBIDDEN: Final = 403
 HTTP_TOO_MANY_REQUESTS: Final = 429
 
 HIGH_SEVERITIES: Final = frozenset({"HIGH", "CRITICAL"})
@@ -165,12 +166,22 @@ def check_api_health(api: str, origin: str) -> str:
 
 
 def check_cors(api: str, ui: str) -> str:
-    """The UI's origin is allowed; an unknown origin is not.
+    """The UI may write; an unknown origin may not — asserted on the server.
 
-    A wildcard would pass the first half and fail the product: this API accepts
-    uploads and mutates state, so the second half is the check that matters.
+    This deliberately does not test `Access-Control-Allow-Origin`, because on this
+    host that header is not ours. Hugging Face answers the pre-flight at its edge
+    and echoes whatever `Origin` it was sent, so an unknown origin is told it is
+    allowed while `ALLOWED_ORIGINS` says otherwise — the same image refuses
+    `evil.example` when run locally (AUDIT.md §4c). A check reading that header
+    would have to either fail forever against a condition nobody can fix, or be
+    softened until it asserted nothing.
+
+    So it checks the thing that is actually enforceable: `OriginGuardMiddleware`
+    rejects a cross-origin *write* before any handler runs, which no upstream
+    header rewriting can undo. The pre-flight is still checked from the UI's own
+    origin, because that one failing would break the product.
     """
-    status, headers, _ = _request(
+    status, _, _ = _request(
         f"{api}/v1/documents",
         method="OPTIONS",
         headers={
@@ -179,24 +190,41 @@ def check_cors(api: str, ui: str) -> str:
             "Access-Control-Request-Headers": "content-type",
         },
     )
-    allowed = headers.get("access-control-allow-origin", "")
-    if status != HTTP_OK or ui not in allowed:
-        raise CheckError(
-            f"pre-flight from {ui} returned HTTP {status} allow-origin='{allowed}'. "
-            "Set ALLOWED_ORIGINS on the Space to the UI origin"
-        )
+    if status != HTTP_OK:
+        raise CheckError(f"pre-flight from {ui} returned HTTP {status}")
 
+    body, content_type = _multipart("cross-origin-probe.jpg", b"\xff\xd8\xff\xe0 probe")
+    status, _, raw = _request(
+        f"{api}/v1/documents",
+        method="POST",
+        body=body,
+        headers={"Content-Type": content_type, "Origin": "https://evil.example"},
+    )
+    if status != HTTP_FORBIDDEN:
+        raise CheckError(
+            f"a write from https://evil.example returned HTTP {status}, not 403 — "
+            "OriginGuardMiddleware is not in force, and on this host the CORS "
+            "headers will not stop it either"
+        )
+    try:
+        code = json.loads(raw)["error"]["code"]
+    except (json.JSONDecodeError, KeyError, TypeError):
+        code = "?"
+    if code != "forbidden_origin":
+        raise CheckError(f"cross-origin write refused with '{code}', not 'forbidden_origin'")
+
+    # Reported, never asserted: it is the platform's behaviour, not the app's.
     _, headers, _ = _request(
         f"{api}/v1/documents",
         method="OPTIONS",
         headers={"Origin": "https://evil.example", "Access-Control-Request-Method": "POST"},
     )
-    if headers.get("access-control-allow-origin"):
-        raise CheckError(
-            "an unknown origin was allowed — ALLOWED_ORIGINS is a wildcard or "
-            "contains something it should not"
-        )
-    return f"{ui} allowed, evil.example refused"
+    edge = (
+        "; edge echoes any Origin (platform, see AUDIT §4c)"
+        if headers.get("access-control-allow-origin")
+        else ""
+    )
+    return f"{ui} may write, evil.example gets 403 forbidden_origin{edge}"
 
 
 def check_ledger_reconciles(api: str, origin: str) -> str:
@@ -477,7 +505,7 @@ def main(argv: list[str] | None = None) -> int:
         ("UI is public", lambda: check_ui_is_public(ui)),
         ("CSP points at the API", lambda: check_csp_points_at_the_api(ui, api)),
         ("API health", lambda: check_api_health(api, ui)),
-        ("CORS is locked", lambda: check_cors(api, ui)),
+        ("cross-origin writes refused", lambda: check_cors(api, ui)),
         ("ledger reconciles", lambda: check_ledger_reconciles(api, ui)),
         ("nothing invalid committed", lambda: check_review_routing(api, ui)),
         ("review queue explains itself", lambda: check_review_queue_is_explainable(api, ui)),

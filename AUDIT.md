@@ -33,7 +33,7 @@ TEST_DATABASE_URL='postgresql+asyncpg://…-pooler….neon.tech/ledgerlens_test?
 |---|---|---|---|
 | **a** | `ruff` + `mypy` pass with zero issues | `make lint typecheck` | **PASS** |
 | **b** | `eslint` + `tsc --noEmit` pass with zero issues | `make web-lint web-typecheck` | **PASS** |
-| **c** | `pytest` green, incl. validation math, idempotent re-upload, duplicate detection, and status transitions under two concurrent requests | `make test` | **PASS** — 137 passed |
+| **c** | `pytest` green, incl. validation math, idempotent re-upload, duplicate detection, and status transitions under two concurrent requests | `make test` | **PASS** — 141 passed |
 | **d** | End-to-end: uploading a document returns validated structured data and the UI animates through all stages | live run, §4 below | **PASS** (text lane) · **PENDING KEY** (vision lane) |
 | **e** | Planted duplicate raises a **HIGH**-severity anomaly with an explanation | `make seed`; `test_planted_duplicate_raises_a_high_severity_anomaly` | **PASS** |
 | **f** | `README.md` with mermaid diagram, local dev, and a step-by-step free deploy | [README.md](./README.md) | **PASS**, with one deliberate deviation — the spec asked for Cloud Run *and* Spaces *and* a Terraform module; one host is deployed and the other two are deleted rather than published untested. Recorded as **D-2** in [SPEC-CONFORMANCE](./docs/SPEC-CONFORMANCE.md), and §4c below |
@@ -103,11 +103,11 @@ A headless browser was not available on this machine, so the browser devtools co
 not opened directly. Open <http://localhost:3000> and check it in one keystroke; every
 class of problem that would appear there is covered by a gate above.
 
-### (c) Tests — 137, against real PostgreSQL
+### (c) Tests — 141, against real PostgreSQL
 
 ```
 $ make test
-137 passed
+141 passed
 ```
 
 The suite **provisions its own database**. If `ledgerlens_test` does not exist, it is
@@ -121,7 +121,7 @@ warrants it: the PostgreSQL *server* itself being unreachable.
 | `test_validation.py` | 32 | Every deterministic rule with hand-computed expectations; money parsing across 11 formats; date parsing; schema forbids invented fields; nulls allowed everywhere |
 | `test_security.py` | 47 | Magic-byte whitelist; declared-type spoofing; size and empty-file limits; filename sanitisation (traversal, control chars, bidi override); PDF page and pixel bombs; secret redaction across 10 credential shapes; prompt-injection resistance; reserved-`LogRecord`-key safety plus a static sweep of every `extra=` in shipped code; the deploy variables validated against the settings schema, including a wildcard-CORS and proxy-count assertion; blank secrets treated as absent |
 | `test_pipeline_integration.py` | 15 | Full pipeline on real Postgres; idempotency; **8 concurrent uploads**; **6 concurrent processors**; status-transition counts; `failed_jobs`; append-only trigger; planted duplicate; no false positives; re-screen idempotence |
-| `test_api.py` | 18 | Error envelopes; CORS allow and deny; security headers; rate limiting per IP and its isolation; typed 404/422; OpenAPI completeness |
+| `test_api.py` | 22 | Error envelopes; CORS headers; **server-side refusal of cross-origin writes**, with the absent-`Origin` and cross-origin-read boundaries pinned; security headers; rate limiting per IP and its isolation; typed 404/422; OpenAPI completeness |
 | `test_deploy_space.py` | 25 | The Spaces deploy contract: preflight, the generated root Dockerfile and the `.gitignore` collision that hid it, Space exclusions, no secret-shaped name in a public file, the frontmatter length rules the Hub enforces in a pre-receive hook, and each branch of the push-failure diagnosis |
 
 Integration tests use a **real PostgreSQL 16** database, never SQLite. Every guarantee this
@@ -431,6 +431,54 @@ A check that read `X-RateLimit-Limit: 10` and called it a pass would have agreed
 broken deployment. That is the difference between checking configuration and checking
 behaviour.
 
+### Defect 6 — the platform overrides the CORS allowlist
+
+Found by `make verify-hosted` on its first run against the Space, and confirmed by
+running the *same image* in both places:
+
+| Pre-flight `Origin` | Container, locally | Through the Space |
+|---|---|---|
+| `https://ledgerlens-jet.vercel.app` | allowed | allowed |
+| `https://evil.example` | **no `access-control-allow-origin`** | **`access-control-allow-origin: https://evil.example`** |
+
+Hugging Face answers the pre-flight at its edge and echoes whatever `Origin` it was
+sent. The tell is `access-control-allow-methods: POST` — an echo of the request —
+where the application would have answered `GET, POST, OPTIONS`. So the request never
+reaches this code, `ALLOWED_ORIGINS` is enforced by the application and then
+overwritten on the way out, and the README's previous claim that *"CORS is locked to
+that origin — there is no wildcard"* was true of the code and false of the
+deployment.
+
+**What it did and did not expose.** Nothing that CORS was the last line of defence
+for. The API has no authentication and sets no cookies (`allow_credentials=False`),
+so a cross-origin read discloses nothing an attacker could not fetch server-side with
+`curl`. What it did permit is a page in someone else's tab spending this API's
+ingestion budget — uploads and anomaly resolutions — from a *visitor's* IP address,
+which is also the address the rate limiter buckets on.
+
+**The fix is not a header.** `CORSMiddleware` does not block anything; it emits
+headers and asks the browser to enforce them, which is worth exactly as much as the
+headers surviving the trip. `OriginGuardMiddleware` now refuses a cross-origin write
+in this process, before any handler runs, with a typed `403 forbidden_origin`. No
+upstream rewriting can undo a request that was never served.
+
+Its boundaries are deliberate and tested. A **missing** `Origin` passes — `curl`, the
+n8n workflow and every server-to-server caller send none, and they were never the
+threat. **Reads** pass, because blocking them would cost embedding and buy nothing
+against an unauthenticated API. Four tests pin exactly that: the refusal, the allowed
+origin, the absent header, and the cross-origin read.
+
+`make verify-hosted` was changed to match, and this is the interesting part. The old
+check read `Access-Control-Allow-Origin` and failed — correctly, but against a
+condition nobody can fix, which is how a pre-demo gate becomes something people learn
+to skip. It now asserts the thing that is actually enforceable: a `POST` from an
+unknown origin must come back `403 forbidden_origin`. The platform's header behaviour
+is still *reported* on the same line, so it stays visible without being asserted
+against.
+
+That is the general lesson from this pass, stated once: **check the behaviour you
+control, not the header something else can rewrite.**
+
 ### It does not clean up, and cannot
 
 `audit_log` is append-only, enforced by a trigger that raises on `UPDATE` and `DELETE`
@@ -587,7 +635,7 @@ from the commands printed beside them.
 | | | Command |
 |---|---|---|
 | Python source | 38 files · 7,637 lines | `find app scripts -name '*.py' \| wc -l` |
-| Python tests | 7 files · 1,839 lines · **137 tests** | `pytest -o addopts='' -q` |
+| Python tests | 7 files · 1,900 lines · **141 tests** | `pytest -o addopts='' -q` |
 | TypeScript source | 15 files · 2,686 lines | `find src -name '*.ts*'` |
 | Container image | 546 MB, non-root (uid 1000), healthcheck green | `docker build -f infra/Dockerfile .` |
 | Suppression comments | **6** `noqa` in shipped Python (each justified inline), **0** `type: ignore`, 0 in TypeScript | `grep -rn noqa app scripts` |

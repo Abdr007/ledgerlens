@@ -19,6 +19,7 @@ class ErrorCode(StrEnum):
     FILE_TOO_LARGE = "file_too_large"
     EMPTY_FILE = "empty_file"
     MALFORMED_FILE = "malformed_file"
+    FORBIDDEN_ORIGIN = "forbidden_origin"
     NOT_FOUND = "not_found"
     INVALID_STATE_TRANSITION = "invalid_state_transition"
     VALIDATION_ERROR = "validation_error"

@@ -49,11 +49,20 @@ async def api(clean_db: None) -> AsyncIterator[httpx.AsyncClient]:
             yield client
 
 
-def _upload(pdf: bytes, name: str = "invoice.pdf", ip: str | None = None) -> dict[str, Any]:
-    return {
-        "files": {"file": (name, pdf, "application/pdf")},
-        "headers": {"X-Forwarded-For": ip or _fresh_ip()},
-    }
+#: What `conftest` sets `ALLOWED_ORIGINS` to. The origin guard is keyed on it.
+ALLOWED_ORIGIN = "http://localhost:3000"
+
+
+def _upload(
+    pdf: bytes,
+    name: str = "invoice.pdf",
+    ip: str | None = None,
+    origin: str | None = None,
+) -> dict[str, Any]:
+    headers = {"X-Forwarded-For": ip or _fresh_ip()}
+    if origin:
+        headers["Origin"] = origin
+    return {"files": {"file": (name, pdf, "application/pdf")}, "headers": headers}
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +228,58 @@ async def test_upload_rate_limit_is_enforced_per_ip(
 
     limited = next(code for code in reversed(codes) if code == 429)
     assert limited == 429
+
+
+async def test_a_cross_origin_write_is_refused_by_the_server(api: httpx.AsyncClient) -> None:
+    """CORS headers ask a browser to enforce; this enforces.
+
+    On Hugging Face Spaces the platform answers the pre-flight at its edge and
+    echoes whatever `Origin` it was sent, so `ALLOWED_ORIGINS` never reaches the
+    browser — the same image refuses `evil.example` locally and permits it through
+    the Space (AUDIT.md §4c). A header something upstream can rewrite is not a
+    control, so the write is refused here instead.
+    """
+    response = await api.post(
+        "/v1/documents",
+        headers={"Origin": "https://evil.example", "X-Forwarded-For": _fresh_ip()},
+        files={"file": ("x.pdf", b"%PDF-1.4 ...", "application/pdf")},
+    )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "forbidden_origin"
+
+
+async def test_the_ui_origin_may_still_write(api: httpx.AsyncClient, sample_pdf: bytes) -> None:
+    response = await api.post(
+        "/v1/documents", **_upload(sample_pdf, "allowed.pdf", ip=_fresh_ip(), origin=ALLOWED_ORIGIN)
+    )
+    assert response.status_code == 202
+
+
+async def test_a_request_with_no_origin_is_untouched(
+    api: httpx.AsyncClient, sample_pdf: bytes
+) -> None:
+    """curl, the n8n workflow and every server-to-server caller send no Origin.
+
+    They were never the threat the guard exists for — a page in someone else's tab
+    spending this API's ingestion budget from a visitor's IP address is.
+    """
+    response = await api.post(
+        "/v1/documents", **_upload(sample_pdf, "noorigin.pdf", ip=_fresh_ip())
+    )
+    assert response.status_code == 202
+
+
+async def test_a_cross_origin_read_is_allowed(api: httpx.AsyncClient) -> None:
+    """Reads disclose nothing a caller could not fetch server-side.
+
+    There is no authentication and no cookie to ride on, so blocking cross-origin
+    reads would cost embedding and buy nothing. The guard covers writes only, and
+    that boundary is deliberate rather than an oversight.
+    """
+    response = await api.get(
+        "/v1/stats", headers={"Origin": "https://evil.example", "X-Forwarded-For": _fresh_ip()}
+    )
+    assert response.status_code == 200
 
 
 async def test_rate_limit_is_scoped_to_the_client(

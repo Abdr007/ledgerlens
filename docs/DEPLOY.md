@@ -181,12 +181,18 @@ proxy_depth_mismatch  observed_hops=2  trusted_proxy_count=1
 Set it in `SPACE_VARIABLES` and redeploy — not in the settings page, or the next deploy
 overwrites it.
 
-> **Re-check CORS on this host specifically.** A sibling project found that Spaces can
-> attach its own permissive CORS headers at the edge, in which case `ALLOWED_ORIGINS`
-> constrains the application but not what a browser is permitted to do. `make verify-hosted`
-> asserts that an unknown origin is refused; if that check fails here while passing against
-> the container locally, the platform is the cause and the finding belongs in AUDIT.md
-> rather than in a code change.
+> **CORS headers are not yours on this host — measured, not inherited.** Hugging Face
+> answers the pre-flight at its edge and echoes whatever `Origin` it was sent. The same
+> image refuses `evil.example` when run locally and permits it through the Space, and the
+> tell is `access-control-allow-methods: POST`, an echo of the request, where the
+> application would have answered `GET, POST, OPTIONS`.
+>
+> `ALLOWED_ORIGINS` is therefore enforced by the application and overwritten on the way
+> out. That is why cross-origin **writes** are refused in the server by
+> `OriginGuardMiddleware` with a typed `403 forbidden_origin`, and why
+> `make verify-hosted` asserts *that* rather than reading a header something upstream
+> rewrites. Full analysis, including what it did and did not expose, in AUDIT.md §4c
+> defect 6.
 
 ---
 

@@ -84,6 +84,54 @@ _SECURITY_HEADERS: Final[dict[str, str]] = {
 _DOCS_PATHS: Final[frozenset[str]] = frozenset({"/docs", "/redoc", "/openapi.json"})
 
 
+#: Methods that change state. A cross-origin read of this API discloses nothing a
+#: caller could not fetch server-side — there is no authentication and no cookie to
+#: ride on — so the guard below covers writes, where the browser's IP and not its
+#: credentials are the thing being borrowed.
+_STATE_CHANGING: Final[frozenset[str]] = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+class OriginGuardMiddleware(BaseHTTPMiddleware):
+    """Refuse cross-origin writes in the server, not merely in the browser.
+
+    `CORSMiddleware` does not *block* anything. It emits headers and asks the
+    browser to enforce them, which works right up until something between this
+    process and the browser rewrites those headers — and on Hugging Face Spaces
+    that is exactly what happens. The platform answers the pre-flight at its edge
+    and echoes whatever `Origin` it was sent, so an unknown origin is told it is
+    allowed while `ALLOWED_ORIGINS` sits here saying otherwise. Measured, not
+    assumed: the same image refuses `evil.example` locally and permits it through
+    the Space (AUDIT.md §4c).
+
+    A header a third party can rewrite is not a control. This one cannot be
+    rewritten, because the request is rejected before it reaches a handler.
+
+    A missing `Origin` is allowed through: `curl`, the n8n workflow and every
+    server-to-server caller send none, and they were never the threat. The threat
+    is a page in someone else's tab spending this API's ingestion budget from a
+    visitor's IP address.
+    """
+
+    def __init__(self, app: Any, *, allowed_origins: list[str]) -> None:
+        super().__init__(app)
+        self._allowed = frozenset(allowed_origins)
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        origin = request.headers.get("origin")
+        if origin and request.method in _STATE_CHANGING and origin not in self._allowed:
+            logger.warning(
+                "cross_origin_write_refused",
+                extra={"request_origin": origin, "path": request.url.path},
+            )
+            return _error_response(
+                403,
+                str(ErrorCode.FORBIDDEN_ORIGIN),
+                "This origin is not permitted to submit requests to this API.",
+                {"origin": origin},
+            )
+        return await call_next(request)
+
+
 class RequestContextMiddleware(BaseHTTPMiddleware):
     """Attach a correlation id to every request and apply security headers."""
 
@@ -161,7 +209,15 @@ def create_app() -> FastAPI:
 
     app.state.limiter = limiter
     app.add_middleware(RequestContextMiddleware, hsts=settings.environment == "prod")
-    # Never `allow_origins=["*"]`: this API takes uploads and mutates state.
+    # Starlette inserts each new middleware at the outside, so CORSMiddleware
+    # below ends up outermost and answers pre-flights first. That is fine and
+    # deliberate: an `OPTIONS` is not a state change, and the guard's job is the
+    # *actual* request. `CORSMiddleware` never blocks one — it only decides which
+    # headers to attach — so a disallowed `POST` still arrives here and is refused
+    # with a 403 before any handler runs.
+    app.add_middleware(OriginGuardMiddleware, allowed_origins=settings.allowed_origins)
+    # Never `allow_origins=["*"]`: this API takes uploads and mutates state. The
+    # headers this emits are advisory — `OriginGuardMiddleware` is what enforces.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
