@@ -345,31 +345,52 @@ def test_no_source_file_passes_a_reserved_key_to_extra() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_render_blueprint_env_vars_validate_against_settings() -> None:
-    """Every literal in `render.yaml` must be a value `Settings` actually accepts.
+def test_space_variables_validate_against_settings() -> None:
+    """Every value in `SPACE_VARIABLES` must be one `Settings` actually accepts.
 
-    A deploy blueprint is code that only ever executes on the platform, so a
-    typo in it is invisible until production refuses to boot. That happened:
+    Deployment configuration is code that only ever executes on the platform, so
+    a typo in it is invisible until production refuses to boot. That happened:
     `ENVIRONMENT: production` is not one of `dev|test|prod`, and the container
     died at import with a pydantic ValidationError before serving a request.
-    Instantiating the real Settings with the real blueprint values catches it
-    here instead of three minutes into a remote build.
+    Building the real Settings from the real deploy values catches it here
+    instead of three minutes into a remote build.
+
+    This is also what keeps the configuration reviewable. `scripts/deploy_space.py`
+    applies the dict on every deploy, so the Space's settings page is a mirror of
+    a file in this repository rather than the only record of what production runs.
     """
-    import yaml
+    import importlib.util
 
     from app.core.settings import Settings
 
-    blueprint = pathlib.Path(__file__).resolve().parents[3] / "render.yaml"
-    if not blueprint.exists():  # pragma: no cover - repository layout guard
-        pytest.skip("render.yaml is not present")
+    script = pathlib.Path(__file__).resolve().parents[3] / "scripts" / "deploy_space.py"
+    assert script.exists(), "scripts/deploy_space.py is missing"
 
-    services = yaml.safe_load(blueprint.read_text())["services"]
-    for service in services:
-        literals = {v["key"]: v["value"] for v in service["envVars"] if "value" in v}
-        # A secret is supplied by the platform, not the file; give the fields
-        # that have no usable default something syntactically valid.
-        literals.setdefault("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/db")
-        Settings(**{key.lower(): value for key, value in literals.items()})
+    # Loaded by path, not imported: `scripts/` is deliberately not a package, and
+    # the API's own tests should not put it on `sys.path`.
+    spec = importlib.util.spec_from_file_location("deploy_space", script)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    variables: dict[str, str] = module.SPACE_VARIABLES
+    assert variables, "no deploy variables declared"
+    # A secret is supplied by the platform, not the file; give the one field with
+    # no usable default something syntactically valid.
+    literals = dict(variables)
+    literals.setdefault("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/db")
+    settings = Settings(**{key.lower(): value for key, value in literals.items()})
+
+    # The two that are not merely well-typed but have to hold specific values, or
+    # the deployment is wrong in a way no type can catch.
+    assert settings.allowed_origins and "*" not in settings.allowed_origins, (
+        "CORS must name the UI origin explicitly; a wildcard would let any origin "
+        "drive an API that accepts uploads"
+    )
+    assert settings.trusted_proxy_count == 1, (
+        "Spaces terminates TLS at exactly one proxy; any other count makes the "
+        "per-IP rate limit either shared by everyone or forgeable per request"
+    )
 
 
 def test_a_blank_secret_is_treated_as_absent() -> None:

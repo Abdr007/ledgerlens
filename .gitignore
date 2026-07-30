@@ -28,12 +28,6 @@ eval/results/
 scripts/_out/
 storage/
 
-# Terraform
-infra/terraform/.terraform/
-infra/terraform/*.tfstate
-infra/terraform/*.tfstate.*
-infra/terraform/*.tfvars
-
 # OS
 .DS_Store
 

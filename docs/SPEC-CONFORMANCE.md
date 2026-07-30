@@ -26,6 +26,9 @@ ledgerlens/
   AUDIT.md  README.md  .env.example
 ```
 
+`infra/` holds the Dockerfile and the local compose file. It no longer holds a
+Terraform module — see D-2.
+
 ## §6 Futuristic UI
 
 | Requirement | Status |
@@ -108,8 +111,47 @@ Recharts vendor chart, anomaly queue, audit drawer — is met exactly as written
 | (c) | `pytest` green, with tests for validation math, idempotent re-upload, duplicate detection, and **status transitions under two concurrent requests (no race)** |
 | (d) | End-to-end: uploading a sample scanned invoice returns validated structured data and the pipeline UI animates through all stages |
 | (e) | Planted duplicate raises a **HIGH-severity** anomaly with an explanation |
-| (f) | `README.md` with mermaid architecture diagram, local dev (`docker-compose.dev.yml`), and step-by-step **free** deploy: Vercel (web), **GCP Cloud Run always-free (api container, with `gcloud` commands)** AND **Hugging Face Spaces as no-card fallback**, Neon, Langfuse; plus optional `infra/terraform/` module provisioning the Cloud Run service + secret env vars |
+| (f) | `README.md` with mermaid architecture diagram, local dev (`docker-compose.dev.yml`), and step-by-step **free** deploy: Vercel (web), **GCP Cloud Run always-free (api container, with `gcloud` commands)** AND **Hugging Face Spaces as no-card fallback**, Neon, Langfuse; plus optional `infra/terraform/` module provisioning the Cloud Run service + secret env vars — **Deviation, see D-2.** The Space is the deployment; Cloud Run and Terraform are gone |
 | — | `AUDIT.md` listing **every check with PASS status** |
+
+### D-2 — One API host, not three
+
+**Spec §8(f)** asks for Cloud Run as the primary API host with `gcloud` commands,
+Hugging Face Spaces as a no-card fallback, and an optional `infra/terraform/`
+module provisioning the Cloud Run service. The repository shipped all three.
+
+**What it does now.** The API runs on a Hugging Face Docker Space, and that is the
+only API deployment path the repository describes. `render.yaml`, the Cloud Run
+walkthrough and `infra/terraform/` are deleted.
+
+**Why.** The spec asked for a *documented* deployment; what it got was three, of
+which none was serving. Cloud Run was named "primary" and had never been applied
+— AUDIT.md said so in as many words, because it would create billable resources
+and the account's billing is inactive. Render *was* serving, on a free tier that
+stops the container after roughly fifteen minutes idle, so the live API took
+**52 seconds** to answer after a quiet spell; anyone opening the demo link
+concluded it was broken before it replied. The Space sleeps after 48 hours
+instead, and the account's existing PRO subscription covers unlimited Docker
+Spaces at no marginal cost.
+
+A repository that carries configuration for hosts it does not use is not
+documenting three options; it is publishing two untested ones next to the real
+one, and offering the reader no way to tell which is which. Deleting them is the
+honest version of §8(f): one host, actually running, verifiable in one command
+(`make verify-hosted`).
+
+**What was preserved.** The requirement behind §8(f) is that a reader can deploy
+this for free and that the deployment is real. Both hold, and more tightly than
+before — the deployment is now checked from outside by ten assertions against the
+running stack, and its non-secret configuration lives in version control
+(`SPACE_VARIABLES` in `scripts/deploy_space.py`, validated against the settings
+schema by `test_space_variables_validate_against_settings`) rather than only in a
+provider's settings page. The container itself is unchanged and still honours
+`$PORT`, so it is not tied to this host: the Cloud Run commands were deleted, not
+the ability to run there.
+
+**Scope.** Deployment configuration and documentation only. No API contract,
+schema, pipeline stage, prompt, validation rule or test behaviour changed.
 
 ## §9 Post-build checks (the three that make it genuinely production-grade)
 
@@ -121,8 +163,8 @@ Recharts vendor chart, anomaly queue, audit drawer — is met exactly as written
 
 Next.js 15 + TS + Tailwind + shadcn/ui + Framer Motion · FastAPI 3.12 in Docker · Claude Sonnet 4.6
 (vision + tool use) · Claude Haiku 4.5 (routing) · Pydantic v2 + pure-Python rules · pandas + rapidfuzz +
-z-scores · Neon Postgres free · Langfuse cloud free · Vercel Hobby · HF Spaces Docker CPU ·
-GCP Cloud Run always-free as primary API host · Terraform (IaC) module · n8n self-hosted local.
+z-scores · Neon Postgres free · Langfuse cloud free · Vercel Hobby · **Hugging Face Docker Space as
+the API host** (see D-2) · n8n self-hosted local.
 
 **Signature sentence for interviews:** *"LLMs extract, code verifies. The model never checks its own
 math — a deterministic validation layer does, and anything that fails routes to a human review queue

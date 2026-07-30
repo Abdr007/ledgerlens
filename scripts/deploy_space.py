@@ -43,6 +43,40 @@ REQUIRED: Final = (
 # field without naming the file it lives in. Checking it here costs nothing.
 SHORT_DESCRIPTION_MAX: Final = 60
 
+#: Non-secret deployment configuration, applied to the Space on every deploy.
+#:
+#: This lives in the repository rather than only in the Space's settings page for
+#: the same reason the Render blueprint it replaces did: a deploy variable is code
+#: that only ever executes on the platform, so a typo in it is invisible until
+#: production refuses to boot. `ENVIRONMENT: production` — not one of
+#: `dev|test|prod` — once killed a container at import with a pydantic error
+#: before it served a request. `test_space_variables_validate_against_settings`
+#: builds a real `Settings` from this dict, so that fails a test now instead of a
+#: remote build three minutes later.
+#:
+#: Secrets are deliberately absent. This file is public; the day it carries a
+#: database password is the day the password is public. They are set once, by
+#: hand, in Settings -> Variables and secrets.
+SPACE_VARIABLES: Final[dict[str, str]] = {
+    # The UI's origin. A domain name is not a secret, so it belongs here where it
+    # is reviewable and deploys itself. Never "*": CORS is the only thing stopping
+    # another origin from driving this API with a visitor's browser.
+    "ALLOWED_ORIGINS": "https://ledgerlens-jet.vercel.app",
+    "ENVIRONMENT": "prod",
+    "LOG_LEVEL": "INFO",
+    "LANGFUSE_HOST": "https://cloud.langfuse.com",
+    # Spaces terminates TLS at one proxy in front of the container. Counting
+    # exactly one hop is what makes the per-IP rate limit both correct and
+    # unspoofable: trust zero and every client shares one bucket; trust the whole
+    # X-Forwarded-For chain and any caller can forge a fresh identity per request.
+    "TRUSTED_PROXY_COUNT": "1",
+    # Spec §7: 10 uploads/minute/IP on the expensive path. Reads are cheap and the
+    # pipeline visual polls about once a second, so they get their own ceiling.
+    "RATE_LIMIT": "10/minute",
+    "READ_RATE_LIMIT": "600/minute",
+    "MAX_UPLOAD_BYTES": "10485760",
+}
+
 
 def run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - fixed argv, no shell
@@ -226,6 +260,12 @@ def main(argv: list[str] | None = None) -> int:
         exist_ok=True,
     )
     print(f"  ready  {url}")
+
+    # Applied every deploy, so the Space's configuration is whatever this file
+    # says rather than whatever someone last typed into the settings page.
+    for key, value in SPACE_VARIABLES.items():
+        api.add_space_variable(repo_id, key, value)
+    print(f"  config {len(SPACE_VARIABLES)} variables applied from SPACE_VARIABLES")
 
     # A Space is deployed by pushing a git tree, so the tree has to be committed
     # first. This used to do that for you, which meant an unreviewed edit could
