@@ -21,15 +21,21 @@ from typing import Final
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[1]
 
-# Files that must be inside the image. If any is missing the Space builds and then
-# reports `degraded`, which is a slow way to discover a missing artefact.
+# Files that must exist before a deploy is even attempted. If any is missing the
+# Space builds and then reports `degraded`, which is a slow way to discover a
+# missing artefact.
 SPACE_CONFIG: Final = Path(".hf-space.yml")
 
+# Deliberately *not* `Dockerfile`. The canonical copy lives in `infra/Dockerfile`
+# next to the rest of the deployment config; the root copy is written onto the
+# deploy commit only (see `push_with_space_config`) and is gitignored. Requiring
+# it here — as the Lexora original did, where the Dockerfile genuinely sits at the
+# root — made this script fail its own preflight and never run.
 REQUIRED: Final = (
-    Path("Dockerfile"),
     Path("README.md"),
     SPACE_CONFIG,
     Path("infra/Dockerfile"),
+    Path("apps/api/pyproject.toml"),
 )
 
 # The Hub enforces this in a pre-receive hook, so an over-long description rejects the
@@ -91,9 +97,12 @@ def explain_push_failure(stderr: str) -> str:
     return "push failed. The remote's reason is above."
 
 
-#: Never pushed to the Space. Screenshots are PNGs, and the Hub refuses binary files
-#: anywhere in a pushed history — not merely in the tip commit.
-SPACE_EXCLUDE: Final = ("docs",)
+#: Never pushed to the Space. Both entries are binary and neither reaches the image
+#: (`.dockerignore` drops them from the build context too): `docs/screens` holds the
+#: README screenshots, and `eval/testset` holds the degraded scans. The Hub polices
+#: binary files across a pushed history rather than only the tip commit, so keeping
+#: them out is cheaper than discovering the limit during a deploy.
+SPACE_EXCLUDE: Final = ("docs", "eval/testset")
 
 
 def push_with_space_config(branch: str) -> subprocess.CompletedProcess[str]:
@@ -156,7 +165,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--space", default="ledgerlens", help="Space name (not the full id)")
     parser.add_argument("--public", action="store_true", help="make the Space public")
-    parser.add_argument("--message", default="Deploy Lexora", help="commit message")
+    parser.add_argument("--message", default="Deploy LedgerLens", help="commit message")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="run the preflight only and exit; needs no credentials, so CI can gate it",
+    )
     args = parser.parse_args(argv)
 
     problems = preflight()
@@ -165,6 +179,9 @@ def main(argv: list[str] | None = None) -> int:
         for problem in problems:
             print(f"  {problem}")
         return 1
+    if args.check:
+        print("preflight passed: every file the Space build needs is present")
+        return 0
 
     try:
         from huggingface_hub import HfApi
@@ -219,11 +236,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n{explain_push_failure(stderr)}")
         return 1
 
+    host = f"https://{user.replace('_', '-')}-{args.space}.hf.space"
     print(f"\n  deployed  {remote_url}")
-    print(f"  API       https://{user.replace('_', '-')}-{args.space}.hf.space/api/health")
-    print("\n  The first build takes 8-12 minutes (it downloads the ONNX models).")
-    print("  Watch it under the Logs tab, then add LEXORA_ANTHROPIC_API_KEY under")
-    print("  Settings -> Variables and secrets when your key arrives.")
+    print(f"  API       {host}/health")
+    print("\n  The first build takes 3-5 minutes. Watch it under the Logs tab.")
+    print("\n  Then, under Settings -> Variables and secrets:")
+    print("    secrets    DATABASE_URL  ANTHROPIC_API_KEY")
+    print("               LANGFUSE_PUBLIC_KEY  LANGFUSE_SECRET_KEY")
+    print("    variables  ALLOWED_ORIGINS=<the Vercel origin>   TRUSTED_PROXY_COUNT=1")
+    print("\n  Without DATABASE_URL the container boots and reports `degraded`; without")
+    print("  ALLOWED_ORIGINS the browser blocks every call and nothing reaches these logs.")
     return 0
 
 

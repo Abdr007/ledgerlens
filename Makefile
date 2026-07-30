@@ -25,7 +25,7 @@ WEB_PORT    ?= 3000
 .DEFAULT_GOAL := help
 .PHONY: help setup setup-api setup-web up down logs psql seed reset dev dev-api dev-web \
         lint fmt typecheck test test-unit eval web-lint web-typecheck web-build audit \
-        docker-build clean
+        docker-build deploy-space verify-hosted clean
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -37,8 +37,8 @@ setup: setup-api setup-web ## Install both toolchains
 
 setup-api: ## Create the API virtualenv and install dependencies
 	@command -v uv >/dev/null 2>&1 \
-	  && (cd $(API) && uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e '.[dev,docgen,observability]') \
-	  || (cd $(API) && python3.12 -m venv .venv && .venv/bin/pip install -U pip && .venv/bin/pip install -e '.[dev,docgen,observability]')
+	  && (cd $(API) && uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e '.[dev,docgen,observability,deploy]') \
+	  || (cd $(API) && python3.12 -m venv .venv && .venv/bin/pip install -U pip && .venv/bin/pip install -e '.[dev,docgen,observability,deploy]')
 
 setup-web: ## Install web dependencies
 	cd $(WEB) && npm install
@@ -81,15 +81,24 @@ dev-web: ## Run the Next.js dev server
 
 # --- Gates -----------------------------------------------------------------
 
-lint: ## ruff check + format check (API)
+# `scripts/` sits outside apps/api and so was outside every gate — which is the
+# wrong way round: it is the deployment surface, and a fault there takes the
+# running API down rather than failing a test. It is linted and type-checked
+# against the API's own config so there is one style and one strictness setting.
+lint: ## ruff check + format check (API and scripts/)
 	cd $(API) && ../../$(RUFF) check .
 	cd $(API) && ../../$(RUFF) format --check .
+	$(RUFF) check --config $(API)/pyproject.toml scripts
+	$(RUFF) format --check --config $(API)/pyproject.toml scripts
 
 fmt: ## Apply ruff formatting
 	cd $(API) && ../../$(RUFF) format . && ../../$(RUFF) check --fix .
+	$(RUFF) format --config $(API)/pyproject.toml scripts
+	$(RUFF) check --fix --config $(API)/pyproject.toml scripts
 
-typecheck: ## mypy --strict (API)
+typecheck: ## mypy --strict (API and scripts/)
 	cd $(API) && ../../$(MYPY) app scripts
+	$(MYPY) --config-file $(API)/pyproject.toml scripts
 
 test: ## pytest, including integration against real PostgreSQL
 	cd $(API) && ../../$(PYTEST) -q
@@ -113,10 +122,16 @@ audit: lint typecheck test web-typecheck web-lint web-build ## Every gate in AUD
 	@echo
 	@echo "  All gates passed: ruff · mypy --strict · pytest · tsc · eslint · next build"
 
-# --- Deploy helpers --------------------------------------------------------
+# --- Deploy ----------------------------------------------------------------
 
 docker-build: ## Build the API container
 	docker build -f infra/Dockerfile -t ledgerlens-api:latest .
+
+deploy-space: ## Push the API to its Hugging Face Docker Space (idempotent)
+	$(PY) scripts/deploy_space.py --space ledgerlens --public
+
+verify-hosted: ## Pre-flight the DEPLOYED stack, and warm it. Run this before presenting
+	$(PY) scripts/verify_hosted.py
 
 clean: ## Remove caches and build output
 	rm -rf $(API)/.mypy_cache $(API)/.ruff_cache $(API)/.pytest_cache $(WEB)/.next

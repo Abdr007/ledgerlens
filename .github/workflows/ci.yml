@@ -58,7 +58,10 @@ jobs:
         working-directory: apps/api
         run: |
           python -m pip install --upgrade pip
-          pip install -e '.[dev,docgen,observability]'
+          # `deploy` is installed for the gates only: mypy cannot check
+          # scripts/deploy_space.py without huggingface_hub on the path, and that
+          # script is the one piece of code whose failure replaces a running API.
+          pip install -e '.[dev,docgen,observability,deploy]'
 
       - name: ruff check
         working-directory: apps/api
@@ -71,6 +74,15 @@ jobs:
       - name: mypy --strict
         working-directory: apps/api
         run: mypy app scripts
+
+      # scripts/ sits outside apps/api, so every gate above misses it. It holds
+      # the deploy and hosted-verification tooling and is held to the same bar,
+      # against the same config.
+      - name: ruff + mypy — scripts/
+        run: |
+          ruff check --config apps/api/pyproject.toml scripts
+          ruff format --check --config apps/api/pyproject.toml scripts
+          mypy --config-file apps/api/pyproject.toml scripts
 
       - name: pytest
         working-directory: apps/api
@@ -103,6 +115,120 @@ jobs:
       - name: next build
         working-directory: apps/web
         run: npm run build
+
+  container:
+    name: Container — build, boot against Postgres, serve
+    runs-on: ubuntu-latest
+
+    # The API is deployed as a container to a Hugging Face Docker Space. Nothing
+    # else in this workflow builds that image, so a broken Dockerfile or an
+    # over-eager .dockerignore would pass every other gate and only surface as a
+    # failed Space build — after the running deployment had already been replaced.
+    #
+    # Booting it against a real Postgres is what makes this a gate rather than a
+    # smoke test: `/health` answers 200 with `"status": "degraded"` when the
+    # database is unreachable, so an image whose schema bootstrap is broken would
+    # still look alive to a naive check.
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ledgerlens
+          POSTGRES_PASSWORD: ledgerlens
+          POSTGRES_DB: ledgerlens
+          POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ledgerlens -d ledgerlens"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Deploy preflight — every file the Space build reads is present
+        run: python scripts/deploy_space.py --check
+
+      - name: Build the image
+        run: docker build -f infra/Dockerfile -t ledgerlens-api:ci .
+
+      - name: Boot it against Postgres
+        run: |
+          docker run -d --name ledgerlens-ci --network host \
+            -e DATABASE_URL='postgresql+asyncpg://ledgerlens:ledgerlens@127.0.0.1:5432/ledgerlens' \
+            -e ENVIRONMENT=prod \
+            -e LLM_MODE=stub \
+            -e ALLOWED_ORIGINS=https://ledgerlens-jet.vercel.app \
+            ledgerlens-api:ci
+
+      - name: Wait for a healthy boot
+        run: |
+          for attempt in $(seq 1 40); do
+            body=$(curl -fsS http://127.0.0.1:7860/health 2>/dev/null || true)
+            case "$body" in
+              *'"status":"ok"'*'"database":"up"'*)
+                echo "healthy after ${attempt}s: $body"
+                exit 0
+                ;;
+            esac
+            sleep 1
+          done
+          echo "the container never reported healthy"
+          docker logs ledgerlens-ci
+          exit 1
+
+      - name: Serve real requests
+        run: |
+          set -euo pipefail
+          curl -fsS http://127.0.0.1:7860/v1/stats > /dev/null
+          curl -fsS http://127.0.0.1:7860/v1/documents?limit=1 > /dev/null
+          curl -fsS http://127.0.0.1:7860/openapi.json > /dev/null
+          echo "stats, documents and openapi all served"
+
+      - name: CORS is locked to the configured origin
+        run: |
+          set -euo pipefail
+          allowed=$(curl -fsS -o /dev/null -D - -X OPTIONS http://127.0.0.1:7860/v1/documents \
+            -H 'Origin: https://ledgerlens-jet.vercel.app' \
+            -H 'Access-Control-Request-Method: POST' \
+            | tr -d '\r' | grep -i '^access-control-allow-origin:' || true)
+          case "$allowed" in
+            *ledgerlens-jet.vercel.app*) echo "allowed origin echoed: $allowed" ;;
+            *) echo "the configured origin was not allowed: '$allowed'"; exit 1 ;;
+          esac
+          denied=$(curl -s -o /dev/null -D - -X OPTIONS http://127.0.0.1:7860/v1/documents \
+            -H 'Origin: https://evil.example' \
+            -H 'Access-Control-Request-Method: POST' \
+            | tr -d '\r' | grep -i '^access-control-allow-origin:' || true)
+          if [ -n "$denied" ]; then
+            echo "an unknown origin was allowed: '$denied'"
+            exit 1
+          fi
+          echo "unknown origin refused"
+
+      - name: The runtime image is least-privilege
+        run: |
+          set -euo pipefail
+          user=$(docker exec ledgerlens-ci id -un)
+          [ "$user" = "app" ] || { echo "running as '$user', expected 'app'"; exit 1; }
+          # devtools is deleted at build time because reportlab and Pillow are
+          # dev-only extras; a package that cannot import is worse than an absent one.
+          if docker exec ledgerlens-ci test -d /app/app/devtools; then
+            echo "app/devtools shipped in the runtime image"
+            exit 1
+          fi
+          echo "uid $(docker exec ledgerlens-ci id -u), user $user, no devtools"
+
+      - name: Container logs
+        if: always()
+        run: docker logs ledgerlens-ci || true
 
   eval:
     name: Evaluation — field accuracy on the labelled set
