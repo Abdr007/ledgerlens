@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pre-flight the deployed stack, the way `make audit` pre-flights the source.
 
-`make audit` proves 111 tests against a local PostgreSQL. Nothing proved anything
+`make audit` proves 112 tests against a local PostgreSQL. Nothing proved anything
 against the deployment, so every hosted failure so far was found by opening the
 page and looking. Two of the worst leave no trace in the API's logs at all,
 because in both cases no request ever reaches the API: a UI redirecting every
@@ -65,6 +65,7 @@ PIPELINE_DEADLINE_S: Final = 90
 HTTP_OK: Final = 200
 HTTP_ACCEPTED: Final = 202
 HTTP_FOUND: Final = 302
+HTTP_TOO_MANY_REQUESTS: Final = 429
 
 HIGH_SEVERITIES: Final = frozenset({"HIGH", "CRITICAL"})
 #: Spec §2: Ingest -> Route -> Extract -> Validate -> Screen -> Ledger.
@@ -412,6 +413,54 @@ def check_errors_are_typed(api: str, origin: str) -> str:
     return f"HTTP {status} {code}, no stack trace"
 
 
+def check_rate_limit_binds(api: str, origin: str) -> str:
+    """The ingestion limit must actually stop someone, not merely be configured.
+
+    Production reported `X-RateLimit-Limit: 10` on every upload and never returned
+    429, because `TRUSTED_PROXY_COUNT` was one less than the host's real proxy
+    depth: the limiter keyed on the address of whichever edge node answered, so
+    callers were spread across a handful of buckets and none of them filled. A
+    check that read the headers would have called that a pass.
+
+    Rejected uploads are used deliberately. The limiter decorator runs before the
+    handler, so a 415 consumes budget while writing nothing — the limit can be
+    driven to its ceiling without adding a single row to an append-only ledger.
+    """
+    boundary = "----ledgerlensratelimit"
+    body = (
+        (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="file"; filename="rate-limit-probe.exe"\r\n'
+            "Content-Type: application/octet-stream\r\n\r\n"
+        ).encode()
+        + b"MZ\x90\x00 deliberately not a document"
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
+    headers = {"Content-Type": f"multipart/form-data; boundary={boundary}", "Origin": origin}
+
+    limit: str | None = None
+    attempts = 0
+    # One more than the ceiling this project configures, with headroom for a
+    # budget already partly spent by the round-trip checks above.
+    for attempts in range(1, 26):
+        status, response_headers, _ = _request(
+            f"{api}/v1/documents", method="POST", body=body, headers=headers
+        )
+        limit = response_headers.get("x-ratelimit-limit", limit)
+        if status == HTTP_TOO_MANY_REQUESTS:
+            return f"429 after {attempts} rejected uploads (limit {limit}), 0 ledger writes"
+        if status == HTTP_ACCEPTED:
+            raise CheckError("an executable was accepted as a document")
+
+    raise CheckError(
+        f"{attempts} uploads in seconds and none was refused, while the API reported "
+        f"X-RateLimit-Limit: {limit}. The limit is counted but does not bind — "
+        "TRUSTED_PROXY_COUNT is almost certainly lower than the host's real proxy "
+        "depth, so the key is a proxy address rather than the caller. The API logs a "
+        "`proxy_depth_mismatch` warning naming the value to set."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ui", default=UI_DEFAULT)
@@ -435,6 +484,7 @@ def main(argv: list[str] | None = None) -> int:
         ("upload · extract · validate", lambda: check_round_trip(api, ui, fresh=args.fresh)),
         ("re-upload is idempotent", lambda: check_idempotency(api, ui)),
         ("rejections are typed", lambda: check_errors_are_typed(api, ui)),
+        ("rate limit binds", lambda: check_rate_limit_binds(api, ui)),
     ]
 
     print(f"\n  UI   {ui}\n  API  {api}\n")

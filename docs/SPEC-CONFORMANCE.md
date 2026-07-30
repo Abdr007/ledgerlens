@@ -142,7 +142,7 @@ honest version of §8(f): one host, actually running, verifiable in one command
 
 **What was preserved.** The requirement behind §8(f) is that a reader can deploy
 this for free and that the deployment is real. Both hold, and more tightly than
-before — the deployment is now checked from outside by ten assertions against the
+before — the deployment is now checked from outside by eleven assertions against the
 running stack, and its non-secret configuration lives in version control
 (`SPACE_VARIABLES` in `scripts/deploy_space.py`, validated against the settings
 schema by `test_space_variables_validate_against_settings`) rather than only in a

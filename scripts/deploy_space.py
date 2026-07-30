@@ -65,10 +65,18 @@ SPACE_VARIABLES: Final[dict[str, str]] = {
     "ENVIRONMENT": "prod",
     "LOG_LEVEL": "INFO",
     "LANGFUSE_HOST": "https://cloud.langfuse.com",
-    # Spaces terminates TLS at one proxy in front of the container. Counting
-    # exactly one hop is what makes the per-IP rate limit both correct and
-    # unspoofable: trust zero and every client shares one bucket; trust the whole
-    # X-Forwarded-For chain and any caller can forge a fresh identity per request.
+    # How many proxies the platform actually puts in front of the container.
+    #
+    # This number must be MEASURED, never assumed. Set it too low and the rate
+    # limit keys on a proxy's address instead of the caller's, so callers scatter
+    # across however many edge nodes answer and the limit never binds — while
+    # still reporting `X-RateLimit-Limit` on every response. That is exactly what
+    # the previous host was doing: 14 uploads in seconds, all 202. AUDIT.md §4c,
+    # defect 5.
+    #
+    # The API logs `proxy_depth_mismatch` once, naming the value to set here, and
+    # `make verify-hosted` fails if the limit does not bind. Confirm against a
+    # running deployment before trusting this value.
     "TRUSTED_PROXY_COUNT": "1",
     # Spec §7: 10 uploads/minute/IP on the expensive path. Reads are cheap and the
     # pipeline visual polls about once a second, so they get their own ceiling.

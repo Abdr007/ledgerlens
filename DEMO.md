@@ -17,7 +17,7 @@ your machine.
 make verify-hosted    # checks the live stack AND warms it
 ```
 
-Must end with `all 10 checks passed · the Space is warm · ready to present`. Run it a
+Must end with `all 11 checks passed · the Space is warm · ready to present`. Run it a
 minute or two before the call, not the night before: the Space sleeps after 48 hours idle
 and the Neon compute suspends sooner, and this is what pays that cost instead of your first
 document doing it in front of someone.
@@ -165,7 +165,7 @@ Drag the exact same PDF in again. It returns immediately, no reprocessing, same 
 | Field-level accuracy | **100.0%** (63/63) |
 | Line-item accuracy | **100.0%** (23/23) |
 | Anomaly precision / recall / F1 | **100% / 100% / 1.00** |
-| Tests | **111**, real PostgreSQL, 0 skipped |
+| Tests | **112**, real PostgreSQL, 0 skipped |
 | Live latency | avg **399 ms**, p95 **536 ms** |
 
 Say the scope out loud before they ask:

@@ -33,7 +33,7 @@ TEST_DATABASE_URL='postgresql+asyncpg://…-pooler….neon.tech/ledgerlens_test?
 |---|---|---|---|
 | **a** | `ruff` + `mypy` pass with zero issues | `make lint typecheck` | **PASS** |
 | **b** | `eslint` + `tsc --noEmit` pass with zero issues | `make web-lint web-typecheck` | **PASS** |
-| **c** | `pytest` green, incl. validation math, idempotent re-upload, duplicate detection, and status transitions under two concurrent requests | `make test` | **PASS** — 111 passed |
+| **c** | `pytest` green, incl. validation math, idempotent re-upload, duplicate detection, and status transitions under two concurrent requests | `make test` | **PASS** — 112 passed |
 | **d** | End-to-end: uploading a document returns validated structured data and the UI animates through all stages | live run, §4 below | **PASS** (text lane) · **PENDING KEY** (vision lane) |
 | **e** | Planted duplicate raises a **HIGH**-severity anomaly with an explanation | `make seed`; `test_planted_duplicate_raises_a_high_severity_anomaly` | **PASS** |
 | **f** | `README.md` with mermaid diagram, local dev, and a step-by-step free deploy | [README.md](./README.md) | **PASS**, with one deliberate deviation — the spec asked for Cloud Run *and* Spaces *and* a Terraform module; one host is deployed and the other two are deleted rather than published untested. Recorded as **D-2** in [SPEC-CONFORMANCE](./docs/SPEC-CONFORMANCE.md), and §4c below |
@@ -103,11 +103,11 @@ A headless browser was not available on this machine, so the browser devtools co
 not opened directly. Open <http://localhost:3000> and check it in one keystroke; every
 class of problem that would appear there is covered by a gate above.
 
-### (c) Tests — 111, against real PostgreSQL
+### (c) Tests — 112, against real PostgreSQL
 
 ```
 $ make test
-111 passed
+112 passed
 ```
 
 The suite **provisions its own database**. If `ledgerlens_test` does not exist, it is
@@ -119,7 +119,7 @@ warrants it: the PostgreSQL *server* itself being unreachable.
 | Module | Tests | Covers |
 |---|---|---|
 | `test_validation.py` | 32 | Every deterministic rule with hand-computed expectations; money parsing across 11 formats; date parsing; schema forbids invented fields; nulls allowed everywhere |
-| `test_security.py` | 46 | Magic-byte whitelist; declared-type spoofing; size and empty-file limits; filename sanitisation (traversal, control chars, bidi override); PDF page and pixel bombs; secret redaction across 10 credential shapes; prompt-injection resistance; reserved-`LogRecord`-key safety plus a static sweep of every `extra=` in shipped code; the deploy variables validated against the settings schema, including a wildcard-CORS and proxy-count assertion; blank secrets treated as absent |
+| `test_security.py` | 47 | Magic-byte whitelist; declared-type spoofing; size and empty-file limits; filename sanitisation (traversal, control chars, bidi override); PDF page and pixel bombs; secret redaction across 10 credential shapes; prompt-injection resistance; reserved-`LogRecord`-key safety plus a static sweep of every `extra=` in shipped code; the deploy variables validated against the settings schema, including a wildcard-CORS and proxy-count assertion; blank secrets treated as absent |
 | `test_pipeline_integration.py` | 15 | Full pipeline on real Postgres; idempotency; **8 concurrent uploads**; **6 concurrent processors**; status-transition counts; `failed_jobs`; append-only trigger; planted duplicate; no false positives; re-screen idempotence |
 | `test_api.py` | 18 | Error envelopes; CORS allow and deny; security headers; rate limiting per IP and its isolation; typed 404/422; OpenAPI completeness |
 
@@ -291,7 +291,9 @@ here, so the number is reported as inherited, not as measured by this document.
 
 ### What the migration exposed
 
-Four defects, all in deployment tooling, all found by running it rather than reading it.
+Five defects. Four are in deployment tooling and one is in the running service; every
+one of them was found by running the thing rather than reading it, and every one of
+them passed `make audit` on the way in.
 
 | # | Defect | Why it was invisible | Fix |
 |---|---|---|---|
@@ -338,7 +340,7 @@ than "is down". No code changed: the fix is to the claim, not to the behaviour.
 
 ### Verified from outside
 
-`make verify-hosted`, ten checks, first run against the live stack:
+`make verify-hosted`, first run against the live stack:
 
 ```
   PASS  UI is public                   HTTP 200
@@ -362,6 +364,65 @@ this one runs on whatever is actually in production. It passed on all 32.
 **`upload · extract · validate`** is the thesis executing in production: a degraded scan,
 routed to the vision lane, read by nobody, five presence checks failed, `NEEDS_REVIEW`, six
 of six stages in the audit trail, 554 ms — verified and refused rather than committed.
+
+### Defect 5 — the rate limit was counted but did not bind
+
+Found by firing uploads at production rather than by reading the code, and the most serious
+finding of this pass. Spec §7 requires 10 requests per minute per IP on ingestion. It was
+configured, it reported itself on every response, and it stopped nobody:
+
+```
+=== rate limit: 10/min/IP on ingestion ===
+  request  9: 202     request 12: 202
+  request 10: 202     request 13: 202
+  request 11: 202     request 14: 202
+  VERDICT: FAIL — no 429 within 14 uploads
+```
+
+The limiter was working perfectly. The key it was given was wrong.
+
+`X-Forwarded-For` is built left to right — each proxy appends the peer it received from —
+so with `hops` proxies in front, the caller is `chain[-hops]`. `TRUSTED_PROXY_COUNT` was
+`1`, taken from a comment in the module rather than from a measurement; the host actually
+presents **two**. `chain[-1]` therefore resolved to the address of whichever edge node
+answered, and callers scattered across a handful of buckets, none of which ever filled.
+The response headers made it look healthy throughout:
+
+```
+upload 1: 202  x-ratelimit-limit: 10  remaining: 9  reset: …866.441602
+upload 2: 202  x-ratelimit-limit: 10  remaining: 9  reset: …866.863248   <- a second bucket
+upload 3: 202  x-ratelimit-limit: 10  remaining: 8  reset: …866.441602
+```
+
+Two things are worth being precise about.
+
+**The tests could not have caught it.** `test_upload_rate_limit_is_enforced_per_ip` and
+`test_rate_limit_is_scoped_to_the_client` both pass, and both passed throughout — each
+builds an `X-Forwarded-For` chain of exactly the depth the setting expects. The test and the
+setting shared one assumption, so no number of tests against that assumption could
+contradict it. Only a request through the real proxy chain could.
+
+**Spoofing was not possible, and is not.** Sending a forged `X-Forwarded-For: 203.0.113.7`
+landed in the same bucket as unforged requests, because the platform appends to the header
+rather than replacing it. The failure was permissive in one direction only: too few
+buckets' worth of protection, not an attacker-chosen identity.
+
+Three changes, in increasing order of how much they matter:
+
+| Change | Effect |
+|---|---|
+| `client_identity` compares the chain it observes against the chain it was configured for and logs `proxy_depth_mismatch` **once**, naming both numbers and the value to set | The fault becomes visible instead of silent |
+| `test_a_deeper_proxy_chain_than_configured_is_reported` pins the resolution *and* the warning, including that a matching depth stays quiet and a second request does not re-log | The behaviour cannot regress |
+| `make verify-hosted` asserts the limit **binds** against the deployment | The fault cannot recur unnoticed, which is the only one of the three that would have caught it |
+
+The hosted check drives the limit to its ceiling using *rejected* uploads. The limiter
+decorator runs before the handler, so a `415` consumes budget while writing nothing — the
+ceiling is reachable without adding a single row to a ledger that cannot delete one.
+Verified locally first: ten `415`s, then `429`, zero documents created.
+
+A check that read `X-RateLimit-Limit: 10` and called it a pass would have agreed with the
+broken deployment. That is the difference between checking configuration and checking
+behaviour.
 
 ### It does not clean up, and cannot
 
@@ -519,7 +580,7 @@ from the commands printed beside them.
 | | | Command |
 |---|---|---|
 | Python source | 38 files · 7,637 lines | `find app scripts -name '*.py' \| wc -l` |
-| Python tests | 6 files · 1,520 lines · **111 tests** | `pytest -o addopts='' -q` |
+| Python tests | 6 files · 1,596 lines · **112 tests** | `pytest -o addopts='' -q` |
 | TypeScript source | 15 files · 2,686 lines | `find src -name '*.ts*'` |
 | Container image | 546 MB, non-root (uid 1000), healthcheck green | `docker build -f infra/Dockerfile .` |
 | Suppression comments | **6** `noqa` in shipped Python (each justified inline), **0** `type: ignore`, 0 in TypeScript | `grep -rn noqa app scripts` |
@@ -533,7 +594,7 @@ None is a blanket suppression and none has been added; only the count was wrong.
 ## Verdict
 
 Every gate that can be run without a live model key **passes**, including all three
-post-build checks from spec §9, and the deployment is now verified from outside by ten
+post-build checks from spec §9, and the deployment is now verified from outside by eleven
 assertions against the running stack rather than assumed to work because it once did.
 
 Two items remain explicitly **pending a key** — the vision lane end to end, and live
@@ -550,10 +611,12 @@ gives the reader no way to tell which is which.
 ### What this pass found, and did not paper over
 
 The second pass was a migration, and migrations are where documentation and reality come
-apart. Four deployment defects are in §4c, every one of them found by running the tooling
-rather than reading it, and every one of them invisible to `make audit` — including a deploy
-script that could never have run, and a first deploy that produced a Space with no
-Dockerfile in it.
+apart. Five defects are in §4c, every one found by running the thing rather than reading it,
+and every one invisible to `make audit` — including a deploy script that could never have
+run, a first deploy that produced a Space with no Dockerfile in it, and, worst of the five,
+a rate limit that reported itself on every response and stopped nobody. That last one had
+two passing tests over it the whole time; they built the request chain the setting expected,
+so they and the setting were wrong together.
 
 Two further findings are corrections to this document rather than to the code:
 

@@ -345,6 +345,61 @@ def test_no_source_file_passes_a_reserved_key_to_extra() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_a_deeper_proxy_chain_than_configured_is_reported(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A wrong `TRUSTED_PROXY_COUNT` must not fail silently.
+
+    `X-Forwarded-For` is built left to right, so with `hops` proxies in front the
+    caller is `chain[-hops]`. Configure one hop where the host presents two and
+    that index lands on a *proxy's* address; since a platform answers from a fleet
+    of edge nodes, callers scatter across buckets and the rate limit never binds.
+    It still reports `X-RateLimit-Limit` on every response while doing so.
+
+    Production did exactly this: 14 uploads in a few seconds, every one a 202.
+    Every existing rate-limit test passed throughout, because each one builds a
+    chain of precisely the depth the setting expects — the tests and the setting
+    shared the same wrong assumption, so no amount of them could catch it.
+    """
+    from app.routers import rate_limit
+
+    class _Client:
+        host = "10.0.0.9"
+
+    class _Request:
+        def __init__(self, forwarded: str) -> None:
+            self.headers = {"x-forwarded-for": forwarded}
+            self.client = _Client()
+
+    monkey = pytest.MonkeyPatch()
+    try:
+        monkey.setattr(rate_limit._settings, "trusted_proxy_count", 1, raising=False)
+        rate_limit._depth_warned.clear()
+
+        # One hop, one entry: the configured depth matches, so the caller resolves.
+        assert rate_limit.client_identity(_Request("203.0.113.7")) == "203.0.113.7"  # type: ignore[arg-type]
+        assert not rate_limit._depth_warned
+
+        with caplog.at_level(logging.WARNING, logger="app.routers.rate_limit"):
+            identity = rate_limit.client_identity(_Request("203.0.113.7, 198.51.100.2"))  # type: ignore[arg-type]
+
+        # The documented failure: the key is the proxy, not the caller.
+        assert identity == "198.51.100.2"
+        record = next(r for r in caplog.records if r.msg == "proxy_depth_mismatch")
+        assert record.observed_hops == 2  # type: ignore[attr-defined]
+        assert record.trusted_proxy_count == 1  # type: ignore[attr-defined]
+        assert "TRUSTED_PROXY_COUNT=2" in record.fix  # type: ignore[attr-defined]
+
+        # Once per process, so a misconfiguration cannot flood the log.
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="app.routers.rate_limit"):
+            rate_limit.client_identity(_Request("203.0.113.7, 198.51.100.2"))  # type: ignore[arg-type]
+        assert not [r for r in caplog.records if r.msg == "proxy_depth_mismatch"]
+    finally:
+        monkey.undo()
+        rate_limit._depth_warned.clear()
+
+
 def test_space_variables_validate_against_settings() -> None:
     """Every value in `SPACE_VARIABLES` must be one `Settings` actually accepts.
 
@@ -387,9 +442,12 @@ def test_space_variables_validate_against_settings() -> None:
         "CORS must name the UI origin explicitly; a wildcard would let any origin "
         "drive an API that accepts uploads"
     )
-    assert settings.trusted_proxy_count == 1, (
-        "Spaces terminates TLS at exactly one proxy; any other count makes the "
-        "per-IP rate limit either shared by everyone or forgeable per request"
+    assert settings.trusted_proxy_count >= 1, (
+        "the API is deployed behind a platform proxy, so the socket peer is never the "
+        "caller; a count of 0 puts every client in one rate-limit bucket. The exact "
+        "value must match the host's real chain depth — see AUDIT.md §4c defect 5, "
+        "where a count one too low left the limit reporting itself and binding on "
+        "nobody. `make verify-hosted` is what proves it binds"
     )
 
 
