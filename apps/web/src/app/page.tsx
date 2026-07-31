@@ -24,6 +24,27 @@ import type {
   Stats,
 } from "@/types/api";
 
+/**
+ * Turn a failed review decision into something the reviewer can act on.
+ *
+ * `invalid_state_transition` is the interesting one: the API refuses a decision
+ * on a flag someone else has already settled, rather than overwriting it and
+ * recording the wrong reviewer in the audit trail. That is a normal outcome of
+ * two people working the same queue, so it reads as information, not as a fault.
+ */
+function describeResolveFailure(error: unknown): string {
+  if (error instanceof ApiRequestError) {
+    if (error.code === "invalid_state_transition") {
+      return "Another reviewer settled that flag first — your decision was not applied. The queue below is up to date.";
+    }
+    if (error.code === "rate_limited") {
+      return "That came too soon after the last decision. Give it a moment and try again.";
+    }
+    return error.message;
+  }
+  return "That decision could not be saved. The queue below is up to date.";
+}
+
 /** How often the pipeline visual asks the backend what actually happened. */
 const POLL_INTERVAL_MS = 650;
 /** Stop polling rather than hammering a stuck document for ever. */
@@ -41,6 +62,7 @@ export default function MissionControl() {
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [auditTarget, setAuditTarget] = React.useState<string | null>(null);
   const [connectionError, setConnectionError] = React.useState<string | null>(null);
+  const [reviewNotice, setReviewNotice] = React.useState<string | null>(null);
 
   const pollRef = React.useRef<number | null>(null);
 
@@ -151,9 +173,19 @@ export default function MissionControl() {
 
   const handleResolve = React.useCallback(
     async (id: string, action: "approve" | "reject") => {
+      // Optimistic: the row leaves the queue at once, and the refresh in `finally`
+      // is what keeps that honest — if the write did not land, the flag comes back.
       setAnomalies((current) => current.filter((anomaly) => anomaly.id !== id));
+      setReviewNotice(null);
       try {
         await api.resolveAnomaly(id, action);
+      } catch (error) {
+        // Never swallow this. The row has already gone, so a silent failure reads
+        // as success — the reviewer walks away believing they cleared a flag that
+        // is still open, or that they made a decision a colleague actually made
+        // the other way. Two reviewers on one queue is the ordinary case, not an
+        // exotic one, so the conflict needs to say so in plain words.
+        setReviewNotice(describeResolveFailure(error));
       } finally {
         await refreshDashboard();
       }
@@ -302,6 +334,8 @@ export default function MissionControl() {
           <AnomalyQueue
             anomalies={anomalies}
             loading={loading}
+            notice={reviewNotice}
+            onDismissNotice={() => setReviewNotice(null)}
             onResolve={handleResolve}
             onInspect={setAuditTarget}
           />

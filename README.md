@@ -3,7 +3,7 @@
 **Invoices in, verified data out — or a human review queue. Never a confident guess.**
 
 [![CI](https://github.com/Abdr007/ledgerlens/actions/workflows/ci.yml/badge.svg)](https://github.com/Abdr007/ledgerlens/actions/workflows/ci.yml)
-![tests](https://img.shields.io/badge/tests-142-c8ff2f)
+![tests](https://img.shields.io/badge/tests-187-c8ff2f)
 ![field accuracy](https://img.shields.io/badge/field%20accuracy-100%25%20(63%2F63)-c8ff2f)
 ![anomaly F1](https://img.shields.io/badge/anomaly%20F1-1.00-c8ff2f)
 ![mypy](https://img.shields.io/badge/mypy-strict-8b7cf6)
@@ -171,7 +171,7 @@ harness scores extraction rather than grading its own homework.
 | Overall field accuracy | **100.0%** (63/63) |
 | Line-item accuracy | **100.0%** (23/23) |
 | Anomaly precision / recall / F1 | **100% / 100% / 1.00** |
-| Tests | **142**, on real PostgreSQL, 0 skipped |
+| Tests | **187**, on real PostgreSQL, 0 skipped |
 | Container image | 546 MB, non-root (uid 1000), healthcheck green |
 
 **Scope, stated precisely.** Those are **offline-baseline** numbers over the **7 of 10**
@@ -180,7 +180,7 @@ model there is nothing to read, and the pipeline correctly routed them to `NEEDS
 rather than inventing fields. They are excluded from scoring and named in the report, which
 records `"mode": "offline"` so an offline figure can never be mistaken for a live one.
 
-Live, in-region pipeline latency across the deployed ledger: **avg 101 ms, p95 134 ms**
+Live, in-region pipeline latency across the deployed ledger: **avg 100 ms, p95 127 ms**
 (read from `/v1/stats`, which is also what the KPI cards show).
 
 See [AUDIT.md](./AUDIT.md) for every gate with its result, including the defects found by
@@ -301,7 +301,7 @@ ledgerlens/
 │     │  ├─ routers/           documents · anomalies · stats · health · projections · rate limits
 │     │  └─ devtools/          document generator + corpora (never imported by the request path)
 │     ├─ scripts/               seed · seed_hosted · grant_app_role
-│     └─ tests/                142 tests · unit + integration on real PostgreSQL
+│     └─ tests/                187 tests · unit + integration on real PostgreSQL
 ├─ eval/run_eval.py            field accuracy + anomaly precision/recall
 ├─ scripts/                    deploy_space · verify_hosted · shot (README screenshots)
 ├─ automation/n8n/             exported workflow
