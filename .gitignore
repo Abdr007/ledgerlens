@@ -25,6 +25,15 @@ tsconfig.tsbuildinfo
 eval/testset/**/*.pdf
 eval/testset/**/*.png
 eval/results/
+
+# Real invoices, scored locally and never published. A real invoice carries a
+# vendor, an address, a tax number, amounts and the recipient's own details — and
+# `labels.json` restates all of it in plaintext, so committing the labels would
+# publish the contents even where the document itself is ignored. Everything in
+# here is excluded except the two files that document the shape.
+eval/testset/private/*
+!eval/testset/private/README.md
+!eval/testset/private/labels.example.json
 scripts/_out/
 storage/
 

@@ -1,0 +1,53 @@
+[
+  {
+    "filename": "example-utility-bill.pdf",
+    "content_type": "application/pdf",
+    "is_scan": false,
+    "expected_anomalies": [],
+    "tags": ["real", "utility"],
+    "ground_truth": {
+      "vendor": "Example Utilities Company",
+      "invoice_number": "INV-2026-000123",
+      "issue_date": "2026-06-01",
+      "due_date": "2026-06-21",
+      "subtotal": "412.50",
+      "tax": "20.63",
+      "total": "433.13",
+      "currency": "AED",
+      "payment_terms": "Net 20",
+      "line_items": [
+        {
+          "description": "Electricity — 412 kWh @ 0.75",
+          "qty": "412",
+          "unit_price": "0.75",
+          "amount": "309.00"
+        },
+        {
+          "description": "Water — 23 m3 @ 4.50",
+          "qty": "23",
+          "unit_price": "4.50",
+          "amount": "103.50"
+        }
+      ]
+    }
+  },
+  {
+    "filename": "example-photographed-receipt.jpg",
+    "content_type": "image/jpeg",
+    "is_scan": true,
+    "expected_anomalies": [],
+    "tags": ["real", "receipt"],
+    "ground_truth": {
+      "vendor": "Example Trading LLC",
+      "invoice_number": "R-88214",
+      "issue_date": "2026-06-14",
+      "due_date": null,
+      "subtotal": "95.00",
+      "tax": "4.75",
+      "total": "99.75",
+      "currency": "AED",
+      "payment_terms": null,
+      "line_items": []
+    }
+  }
+]
