@@ -584,6 +584,11 @@ class PipelineOrchestrator:
                         "line_items": len(extraction.line_items),
                         "repair_attempts": outcome.repair_attempts,
                         "lane": str(outcome.lane),
+                        # How much of the document was actually looked at. Null on
+                        # the text lane, where PyMuPDF reads every page.
+                        "pages_read": outcome.pages_read,
+                        "pages_total": outcome.pages_total,
+                        "pages_unread": outcome.pages_unread,
                     },
                 )
                 await append_audit(
@@ -611,7 +616,22 @@ class PipelineOrchestrator:
             stage = PipelineStage.LEDGER
             latency_ms = int((time.perf_counter() - started) * 1000)
             blocking = [f for f in findings if f.severity.rank >= 3]
-            if outcome.report.passed and not blocking:
+            unread = outcome.pages_unread
+            if unread:
+                # The vision lane renders only the opening pages, so on a longer
+                # scan "the totals reconcile" is a statement about part of the
+                # document. Auto-committing that is the one thing this pipeline
+                # promises not to do — report a conclusion drawn from content
+                # nobody read — and until now it did so silently, because a
+                # passing validator gave no hint that pages were missing.
+                target = DocumentStatus.NEEDS_REVIEW
+                reason = (
+                    f"Only {outcome.pages_read} of {outcome.pages_total} pages were read, so "
+                    f"{unread} page(s) were never shown to the extractor."
+                )
+                if not outcome.report.passed:
+                    reason = f"{reason} {outcome.report.failure_summary()}"
+            elif outcome.report.passed and not blocking:
                 target, reason = DocumentStatus.DONE, None
             elif not outcome.report.passed:
                 target = DocumentStatus.NEEDS_REVIEW

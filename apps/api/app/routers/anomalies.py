@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from sqlalchemy import select, update
+from sqlalchemy import CursorResult, case, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db, transaction
@@ -28,6 +28,18 @@ from app.routers.rate_limit import limiter, mutation_rate_limit
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/anomalies", tags=["anomalies"])
+
+#: `AnomalySeverity.rank` expressed in SQL, so the queue can be *ordered* by
+#: severity rather than merely re-sorted after the fact. Sorting the page in
+#: Python made "most severe first" true only within whichever rows the LIMIT had
+#: already chosen by date — so once the queue outgrew a page, a HIGH finding older
+#: than the page window could not be reached from the front of the queue at all.
+#: Derived from the enum rather than restated, so the two cannot drift.
+_SEVERITY_RANK = case(
+    {member.value: member.rank for member in AnomalySeverity},
+    value=Anomaly.severity,
+    else_=0,
+)
 
 
 @router.get(
@@ -55,7 +67,7 @@ async def list_anomalies(
             .join(Document, Document.id == Anomaly.document_id)
             .outerjoin(Extraction, Extraction.document_id == Anomaly.document_id)
             .where(*filters)
-            .order_by(Anomaly.created_at.desc())
+            .order_by(_SEVERITY_RANK.desc(), Anomaly.created_at.desc())
             .limit(limit)
             .offset(offset)
         )
@@ -71,8 +83,7 @@ async def list_anomalies(
         )
         for anomaly, extraction, document in rows
     ]
-    # Highest severity first so the queue leads with what matters.
-    items.sort(key=lambda item: (-item.severity.rank, -item.created_at.timestamp()))
+    # No re-sort here: the ordering is the query's, so it holds across pages.
     return items
 
 
@@ -112,11 +123,25 @@ async def resolve_anomaly(
             )
 
         resolved_at = datetime.now(UTC)
-        await session.execute(
-            update(Anomaly)
-            .where(Anomaly.id == anomaly_id, Anomaly.status == str(AnomalyStatus.OPEN))
-            .values(status=str(target), resolved_at=resolved_at, resolved_note=payload.note)
+        applied = cast(
+            CursorResult[Any],
+            await session.execute(
+                update(Anomaly)
+                .where(Anomaly.id == anomaly_id, Anomaly.status == str(AnomalyStatus.OPEN))
+                .values(status=str(target), resolved_at=resolved_at, resolved_note=payload.note)
+            ),
         )
+        if applied.rowcount == 0:
+            # Another reviewer resolved this between the read above and this write.
+            # Continuing would append an ANOMALY_RESOLVED naming *this* reviewer and
+            # *this* decision for something they did not do — permanently, since the
+            # trigger forbids rewriting it — and then return 200 carrying the other
+            # reviewer's outcome as though it were theirs. Raising rolls the whole
+            # transaction back, so nothing is written at all.
+            raise InvalidStateTransitionError(
+                "This anomaly was reviewed by someone else while you were deciding.",
+                details={"anomaly_id": str(anomaly_id), "requested": str(target)},
+            )
         await append_audit(
             session,
             document_id=anomaly.document_id,

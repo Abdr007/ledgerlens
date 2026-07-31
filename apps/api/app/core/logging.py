@@ -23,27 +23,46 @@ from typing import Any, Final
 # newline, comma or closing bracket. Not itself a credential.
 _SECRET_VALUE_TERMINATORS: Final = r'[^"\'\r\n,}\]]+'  # noqa: S105
 
-_SECRET_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
-    # Provider-issued keys, by their published prefixes.
-    re.compile(r"sk-ant-[A-Za-z0-9_\-]{8,}"),
-    re.compile(r"(?:sk|pk)-lf-[A-Za-z0-9_\-]{8,}"),
-    re.compile(r"AKIA[0-9A-Z]{16}"),
-    re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"),
-    # Credentials embedded in a connection string.
-    re.compile(r"postgres(?:ql)?(?:\+\w+)?://[^:\s]+:[^@\s]+@"),
-    # Anything presented as a labelled secret, in a header or a JSON body.
-    re.compile(
-        r"(?i)[\"']?\b(?:authorization|proxy-authorization|x-api-key|api[-_]?key|"
-        r"access[-_]?token|refresh[-_]?token|secret[-_]?key|client[-_]?secret|"
-        r"password|passwd|secret|token)\b[\"']?\s*[:=]\s*[\"']?" + _SECRET_VALUE_TERMINATORS
-    ),
-    # A bearer token that appears without its header name.
-    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/\-]{8,}=*"),
-    # Never let a private key block reach a log, even truncated.
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
-)
-
 _REDACTED: Final = "[REDACTED]"
+
+#: `(pattern, replacement)`. Most patterns match the credential alone and are
+#: replaced wholesale. The labelled-value pattern cannot: it has to consume the
+#: label to know it *is* a secret, so it captures the label and puts it back.
+#:
+#: Substituting the whole match there scrubbed the key name and the value's
+#: opening quote along with the secret, turning `{"api_key":"sk-ant-…"}` into
+#: `{[REDACTED]"}` — the secret was gone, but so was the JSON. Every line this
+#: module emits is supposed to be one parseable object, and the lines that got
+#: mangled were exactly the ones worth reading. Keeping group 1 leaves the
+#: closing quote in place, because the terminator class stops before it.
+_SECRET_PATTERNS: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
+    # Labelled values run first, deliberately. A prefix pattern firing first would
+    # leave `[REDACTED]` sitting where the value was, which the labelled pattern
+    # then matches and wraps again — harmless but ugly (`"[REDACTED]]"`). Taking
+    # the whole value in one pass avoids it.
+    (
+        re.compile(
+            r"(?i)([\"']?\b(?:authorization|proxy-authorization|x-api-key|api[-_]?key|"
+            r"access[-_]?token|refresh[-_]?token|secret[-_]?key|client[-_]?secret|"
+            r"password|passwd|secret|token)\b[\"']?\s*[:=]\s*[\"']?)" + _SECRET_VALUE_TERMINATORS
+        ),
+        r"\1" + _REDACTED,
+    ),
+    # Provider-issued keys, by their published prefixes.
+    (re.compile(r"sk-ant-[A-Za-z0-9_\-]{8,}"), _REDACTED),
+    (re.compile(r"(?:sk|pk)-lf-[A-Za-z0-9_\-]{8,}"), _REDACTED),
+    (re.compile(r"AKIA[0-9A-Z]{16}"), _REDACTED),
+    (re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}"), _REDACTED),
+    # Credentials embedded in a connection string.
+    (re.compile(r"postgres(?:ql)?(?:\+\w+)?://[^:\s]+:[^@\s]+@"), _REDACTED),
+    # A bearer token that appears without its header name.
+    (re.compile(r"(?i)\b(Bearer\s+)[A-Za-z0-9._~+/\-]{8,}=*"), r"\1" + _REDACTED),
+    # Never let a private key block reach a log, even truncated.
+    (
+        re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
+        _REDACTED,
+    ),
+)
 
 _RESERVED: Final[frozenset[str]] = frozenset(
     {
@@ -75,9 +94,13 @@ _RESERVED: Final[frozenset[str]] = frozenset(
 
 
 def redact(text: str) -> str:
-    """Replace anything that looks like a credential with a placeholder."""
-    for pattern in _SECRET_PATTERNS:
-        text = pattern.sub(_REDACTED, text)
+    """Replace anything that looks like a credential with a placeholder.
+
+    Structure-preserving: a redacted line is still the JSON object it was, so the
+    lines that matter most survive log aggregation.
+    """
+    for pattern, replacement in _SECRET_PATTERNS:
+        text = pattern.sub(replacement, text)
     return text
 
 

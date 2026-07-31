@@ -72,6 +72,19 @@ class ExtractionOutcome:
     attempts: tuple[AttemptRecord, ...] = ()
     document_text: str | None = None
     failure_note: str | None = field(default=None)
+    #: Vision lane only: how many pages were actually shown to the model, and how
+    #: many the document has. The renderer caps at `_MAX_VISION_PAGES`, so a long
+    #: scan is read from its opening pages and the rest is never seen. `None` on
+    #: the text lane, where PyMuPDF reads every page.
+    pages_read: int | None = None
+    pages_total: int | None = None
+
+    @property
+    def pages_unread(self) -> int:
+        """Pages the model was never shown. Zero unless the vision lane truncated."""
+        if self.pages_read is None or self.pages_total is None:
+            return 0
+        return max(0, self.pages_total - self.pages_read)
 
 
 def _format_schema_error(error: ValidationError) -> str:
@@ -93,14 +106,20 @@ def _echo(payload: dict[str, Any]) -> str:
     return rendered[:_PAYLOAD_ECHO_LIMIT] + "\n… (truncated)"
 
 
-def _build_vision_images(data: bytes, media_type: MediaType) -> tuple[ImageBlock, ...]:
-    """Pages the vision lane should look at."""
+def _build_vision_images(data: bytes, media_type: MediaType) -> tuple[tuple[ImageBlock, ...], int]:
+    """Pages the vision lane should look at, and how many the document has.
+
+    The renderer caps the number of pages it rasterises, so the second element is
+    what makes the gap between "read" and "present" visible to the caller instead
+    of silently disappearing.
+    """
     if media_type is MediaType.PDF:
-        return tuple(
-            ImageBlock(media_type=MediaType.PNG, data_b64=page.data_b64)
-            for page in textlane.render_pdf_pages(data)
+        rendered = textlane.render_pdf_pages(data)
+        images = tuple(
+            ImageBlock(media_type=MediaType.PNG, data_b64=page.data_b64) for page in rendered
         )
-    return (ImageBlock(media_type=media_type, data_b64=textlane.encode_image(data)),)
+        return images, textlane.page_count_of(data, media_type)
+    return (ImageBlock(media_type=media_type, data_b64=textlane.encode_image(data)),), 1
 
 
 async def extract_document(
@@ -116,12 +135,15 @@ async def extract_document(
     """Run the forced-tool extraction with up to `extraction_max_repair_attempts` repairs."""
     document_text: str | None = None
     images: tuple[ImageBlock, ...] = ()
+    pages_read: int | None = None
+    pages_total: int | None = None
 
     if lane is Lane.TEXT:
         # PyMuPDF already read this document for free; no image tokens are spent.
         document_text = analysis.text if analysis is not None else textlane.analyse_pdf(data).text
     else:
-        images = _build_vision_images(data, media_type)
+        images, pages_total = _build_vision_images(data, media_type)
+        pages_read = len(images)
 
     system_prompt = EXTRACTOR_SYSTEM_PROMPT
     user_prompt = build_extraction_user_prompt(
@@ -196,6 +218,8 @@ async def extract_document(
                     repair_attempts=repair_index,
                     model=settings.model_extractor,
                     lane=lane,
+                    pages_read=pages_read,
+                    pages_total=pages_total,
                     usages=tuple(usages),
                     attempts=tuple(attempts),
                     document_text=document_text,
@@ -234,6 +258,8 @@ async def extract_document(
             repair_attempts=max_repairs,
             model=settings.model_extractor,
             lane=lane,
+            pages_read=pages_read,
+            pages_total=pages_total,
             usages=tuple(usages),
             attempts=tuple(attempts),
             document_text=document_text,
@@ -253,6 +279,8 @@ async def extract_document(
         repair_attempts=max_repairs,
         model=settings.model_extractor,
         lane=lane,
+        pages_read=pages_read,
+        pages_total=pages_total,
         usages=tuple(usages),
         attempts=tuple(attempts),
         document_text=document_text,
