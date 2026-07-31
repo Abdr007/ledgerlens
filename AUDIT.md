@@ -6,6 +6,11 @@ Every check from the build spec, the command that runs it, and its result.
 **Second pass:** 2026-07-31 — the move to a Hugging Face Space, re-measurement of every
 number in §8, and verification of the running deployment from outside. See **§4c**, which
 is the only section written against the deployment rather than the source.
+**Third pass:** 2026-07-31 (later the same day) — the extractor moved to Claude Sonnet 5, a
+line-by-line review of the remaining source found eleven defects, and every one was fixed.
+Each figure below was re-derived by running the command printed beside it; nothing was
+carried forward on trust. What the review found is under **Verdict**, below, and the code it
+changed is why the counts moved: 142 tests to 187.
 **Mode:** `offline` — no `ANTHROPIC_API_KEY` was available at audit time. Every check below
 that does not require a live model is a real result. The two that do are marked
 **PENDING KEY** with the exact command to reproduce them, and nothing anywhere in this
@@ -33,7 +38,7 @@ TEST_DATABASE_URL='postgresql+asyncpg://…-pooler….neon.tech/ledgerlens_test?
 |---|---|---|---|
 | **a** | `ruff` + `mypy` pass with zero issues | `make lint typecheck` | **PASS** |
 | **b** | `eslint` + `tsc --noEmit` pass with zero issues | `make web-lint web-typecheck` | **PASS** |
-| **c** | `pytest` green, incl. validation math, idempotent re-upload, duplicate detection, and status transitions under two concurrent requests | `make test` | **PASS** — 142 passed |
+| **c** | `pytest` green, incl. validation math, idempotent re-upload, duplicate detection, and status transitions under two concurrent requests | `make test` | **PASS** — 187 passed |
 | **d** | End-to-end: uploading a document returns validated structured data and the UI animates through all stages | live run, §4 below | **PASS** (text lane) · **PENDING KEY** (vision lane) |
 | **e** | Planted duplicate raises a **HIGH**-severity anomaly with an explanation | `make seed`; `test_planted_duplicate_raises_a_high_severity_anomaly` | **PASS** |
 | **f** | `README.md` with mermaid diagram, local dev, and a step-by-step free deploy | [README.md](./README.md) | **PASS**, with one deliberate deviation — the spec asked for Cloud Run *and* Spaces *and* a Terraform module; one host is deployed and the other two are deleted rather than published untested. Recorded as **D-2** in [SPEC-CONFORMANCE](./docs/SPEC-CONFORMANCE.md), and §4c below |
@@ -45,11 +50,11 @@ $ cd apps/api && ruff check .
 All checks passed!
 
 $ cd apps/api && ruff format --check .
-44 files already formatted
+53 files already formatted
 
 $ cd apps/api && mypy app scripts
-Success: no issues found in 38 source files
-# 38 = app/ + scripts/. `ruff` additionally covers tests/, hence 44 there.
+Success: no issues found in 40 source files
+# 40 = app/ + scripts/. `ruff` additionally covers tests/, hence 53 there.
 ```
 
 `mypy` runs under `strict = true` with `warn_unreachable`, `warn_unused_ignores` and
@@ -61,11 +66,11 @@ configuration exemptions exist, each for a third-party limitation rather than ou
 | `untyped_calls_exclude = ["pymupdf"]` | PyMuPDF ships partial annotations; its constructors are untyped. Excluding that one package keeps `strict` on for every line we own. |
 | `ignore_missing_imports` for `fitz`, `pymupdf`, `slowapi`, `langfuse`, `reportlab`, `PIL` | These publish no type stubs. |
 
-Ruff runs 16 rule families including `S` (bandit security), `DTZ` (naive datetimes),
+Ruff runs 18 rule families including `S` (bandit security), `DTZ` (naive datetimes),
 `ASYNC`, `T20` (no stray prints) and `PTH`. Since 2026-07-31 it also covers `scripts/`,
 which sits outside `apps/api` and was therefore outside every gate despite being the
 deployment surface — the place where a fault takes the running API down rather than failing
-a test. There are **six** `# noqa` suppressions across four rules in the entire codebase,
+a test. There are **eight** `# noqa` suppressions across four rules in the entire codebase,
 each with the reason written next to it:
 
 | Location | Rule | Why |
@@ -74,6 +79,7 @@ each with the reason written next to it:
 | `routers/anomalies.py` | `ARG001` ×2 | Same. |
 | `core/logging.py` | `S105` | A regex character class named `_SECRET_VALUE_TERMINATORS` is flagged as a hardcoded password. It is a pattern, not a credential. |
 | `core/logging.py` | `N802` | `makeRecord` overrides a `logging.Logger` method. The stdlib chose the camelCase name; renaming it would simply stop the override working. |
+| `scripts/seed_hosted.py` | `S310` ×2 | `urllib` request and `urlopen` against the seeding target. Bandit flags any `urlopen` because a URL can be attacker-controlled; this one is the operator's own `--api` argument, run from a terminal, never from a request. |
 
 ### (b) TypeScript — lint, types and build
 
@@ -103,11 +109,11 @@ A headless browser was not available on this machine, so the browser devtools co
 not opened directly. Open <http://localhost:3000> and check it in one keystroke; every
 class of problem that would appear there is covered by a gate above.
 
-### (c) Tests — 142, against real PostgreSQL
+### (c) Tests — 187, against real PostgreSQL
 
 ```
 $ make test
-142 passed
+187 passed
 ```
 
 The suite **provisions its own database**. If `ledgerlens_test` does not exist, it is
@@ -123,6 +129,12 @@ warrants it: the PostgreSQL *server* itself being unreachable.
 | `test_pipeline_integration.py` | 15 | Full pipeline on real Postgres; idempotency; **8 concurrent uploads**; **6 concurrent processors**; status-transition counts; `failed_jobs`; append-only trigger; planted duplicate; no false positives; re-screen idempotence |
 | `test_api.py` | 22 | Error envelopes; CORS headers; **server-side refusal of cross-origin writes**, with the absent-`Origin` and cross-origin-read boundaries pinned; security headers; rate limiting per IP and its isolation; typed 404/422; OpenAPI completeness |
 | `test_deploy_space.py` | 25 | The Spaces deploy contract: preflight, the generated root Dockerfile and the `.gitignore` collision that hid it, Space exclusions, no secret-shaped name in a public file, the frontmatter length rules the Hub enforces in a pre-receive hook, and each branch of the push-failure diagnosis |
+| `test_integrity_guards.py` | 14 | Three guarantees that used to fail open: a partially-read scan is not treated as a verified document; secret redaction leaves the log line parseable JSON; the schema probe notices a dropped `CHECK` constraint |
+| `test_screening.py` | 10 | The bounded history query is a strict superset of the Python matching it prefilters, proved over real legal-suffix variants; duplicate reasons state the right direction for a backdated invoice |
+| `test_health_tracer.py` | 6 | `/health` reports the tracer that was built, not the keys that were configured — including the `unavailable` state that was previously indistinguishable from `enabled` |
+| `test_pricing.py` | 6 | Cost is charged at the rate in force on the day of the call, with both sides of the Sonnet 5 introductory-pricing boundary pinned and an unknown model falling back rather than reporting a call as free |
+| `test_review_queue.py` | 5 | Severity ordering survives pagination; two simultaneous reviewers produce exactly one winner and exactly one audit entry |
+| `test_reliability.py` | 4 | A `wait_for` timeout consumes the retry budget rather than bypassing it; a status transition that loses its race is not written into the append-only log |
 
 Integration tests use a **real PostgreSQL 16** database, never SQLite. Every guarantee this
 project makes — `UNIQUE(file_hash)`, `INSERT … ON CONFLICT`, the conditional status
@@ -591,7 +603,7 @@ says that it adds a row.
 Measured from `/v1/stats` against the deployed ledger — the same query the KPI cards use:
 
 ```
-avg 101 ms · p95 134 ms   over 29 terminal documents
+avg 100 ms · p95 127 ms   over 32 terminal documents
 ```
 
 This is in-region pipeline time, and it is a *fourth* of what the previous host recorded
@@ -659,15 +671,17 @@ recorded as `blocked_by_mode` and excluded rather than counted as a miss.
 | Anomaly precision | **100.0%** (1 TP, 0 FP) |
 | Anomaly recall | **100.0%** (1 TP, 0 FN, 1 excluded as `blocked_by_mode`) |
 | Anomaly F1 | **1.00** over a single expectation |
-| Mean latency | 13 ms |
+| Mean latency | 14 ms |
 | p95 latency | 24 ms |
 | Cost | $0.00 (offline mode) |
 
-*(Re-run 2026-07-31; report at `eval/results/eval-offline-2026-07-31.json`. Accuracy is
-unchanged. The latency figures moved from 22/33 ms to 13/24 ms between two runs on the same
-machine with no code change — which is the useful thing to know about them: at this scale
-they measure the host's mood, not the pipeline. The live in-region figures in §4c are the
-ones worth quoting.)*
+*(Re-run 2026-07-31 on the third pass; report at `eval/results/eval-offline-2026-07-31.json`.
+Accuracy, line items and the anomaly result are byte-identical to the second pass — bounding
+the screening query and the other ten fixes changed no scored outcome. The latency figures
+have now read 22/33, 13/24 and 14/24 ms across three runs on the same machine with no code
+change between them, which is the useful thing to know about them: at this scale they measure
+the host's mood, not the pipeline. The live in-region figures in §4c are the ones worth
+quoting.)*
 
 **Scope, stated precisely.** These are **offline-baseline** numbers over the **7 of 10**
 documents this mode can read. The other 3 are scans with no text layer: without a vision
@@ -754,15 +768,17 @@ from the commands printed beside them.
 
 | | | Command |
 |---|---|---|
-| Python source | 38 files · 7,637 lines | `find app scripts -name '*.py' \| wc -l` |
-| Python tests | 7 files · 1,943 lines · **142 tests** | `pytest -o addopts='' -q` |
-| TypeScript source | 15 files · 2,686 lines | `find src -name '*.ts*'` |
+| Python source | 40 files · 8,548 lines | `find app scripts -name '*.py' \| wc -l` |
+| Python tests | 13 files · 2,631 lines · **187 tests** | `pytest -o addopts='' -q` |
+| TypeScript source | 15 files · 2,747 lines | `find src -name '*.ts*'` |
 | Container image | 546 MB, non-root (uid 1000), healthcheck green | `docker build -f infra/Dockerfile .` |
-| Suppression comments | **6** `noqa` in shipped Python (each justified inline), **0** `type: ignore`, 0 in TypeScript | `grep -rn noqa app scripts` |
+| Suppression comments | **8** `noqa` in shipped Python (each justified inline), **0** `type: ignore`, 0 in TypeScript | `grep -rn noqa app scripts` |
 
-The suppression count was previously given as 3. It is 6, and always was — the table in
-§1(a) lists all six across four rules, so the two halves of this document disagreed.
-None is a blanket suppression and none has been added; only the count was wrong.
+The suppression count was given as 3 in the first revision and 6 in the second, while the
+table in §1(a) listed a different number again — three figures for one quantity, which meant
+none of them was being checked. Both halves are now derived from the same `grep`, and it
+returns **8** across four rules: the six above plus two `S310` in `scripts/seed_hosted.py`,
+which the second pass counted in §1(a) but not here. None is a blanket suppression.
 
 ---
 
@@ -777,11 +793,13 @@ accuracy and cost — and are marked as such everywhere they appear: in this fil
 evaluation report JSON, and in the UI's own mode badge. Nothing in this repository reports
 an unverified result as verified.
 
-No residuals are left open. The spec is implemented as written with **two** deviations,
-both deliberate and both recorded in the conformance doc: **D-1**, the §6 colour palette, presentation-only and
-owner-approved; and **D-2**, one API host rather than three, because the two that were
-deleted had never been applied and publishing untested deployment paths next to a real one
-gives the reader no way to tell which is which.
+No residuals are left open. The spec is implemented as written with **three** deviations,
+all deliberate and all recorded in the conformance doc: **D-1**, the §6 colour palette,
+presentation-only and owner-approved; **D-2**, one API host rather than three, because the
+two that were deleted had never been applied and publishing untested deployment paths next
+to a real one gives the reader no way to tell which is which; and **D-3**, Claude Sonnet 5
+on the vision lane in place of the Sonnet 4.6 the spec names, which also required pinning
+thinking off so the lane keeps the deterministic cost and latency it was measured with.
 
 ### What this pass found, and did not paper over
 
@@ -809,3 +827,51 @@ Two further findings are corrections to this document rather than to the code:
 
 The honest summary of both: the code was in better shape than the deployment tooling, and
 this file was in better shape than its own arithmetic.
+
+### What the third pass found
+
+The second pass was a migration; the third was a read. Every module that runs in production
+was read line by line, which is a different instrument from `make audit` — it finds the
+things that are wrong when nothing has gone wrong yet. Eleven defects, all fixed, none of
+which any gate in this file would ever have failed on.
+
+Four are cases where a guarantee this project sells was quietly not being kept:
+
+- **The audit log could record a transition that never happened.** `_finalise` read a status,
+  then updated conditionally on it. When that update lost a race it matched zero rows — and
+  the code appended `STATUS_CHANGED` anyway, permanently, because the trigger forbids
+  rewriting it. `resolve_anomaly` had the same shape in the review write-back, where the
+  record of *who cleared a flag* is the entire product; it now refuses with a 409 instead.
+- **A partially-read scan could auto-commit.** The vision lane renders the first three pages
+  and nothing recorded the rest, so on a longer document "the totals reconcile" was a
+  statement about part of it. Page counts now reach the audit trail, and unread pages route
+  to review.
+- **Secret redaction removed the secret and the JSON with it.** `{"api_key":"sk-ant-…"}`
+  became `{[REDACTED]"}` — scrubbed, and no longer parseable, on precisely the lines worth
+  reading.
+- **"The schema is current" did not include the constraints.** The probe compared tables,
+  indexes and the trigger; the integrity rules live in `CHECK` and `UNIQUE`. A database with
+  every table and no enum constraint passed, and in production nothing would have healed it.
+
+Three were failures that would have been misreported rather than missed: two identical
+90-second timeouts racing so that the same stall was classified two different ways at
+random; a review queue whose "most severe first" was applied after `LIMIT`, so past page one
+it was not true; and a UI that swallowed a failed review decision entirely, which mattered
+more once the 409 above made conflict an ordinary outcome.
+
+One was a scalability defect rather than a correctness one: screening loaded every
+extraction ever written on every upload. Bounding it needed an argument that the SQL filter
+is a strict superset of the Python matching it replaces, which is now a test.
+
+And one was a claim, not code: `/health` reported that Langfuse *keys were configured*
+rather than that the exporter *was built*. It said `enabled` while production had no
+Langfuse secrets set at all and nothing was being traced — the same failure mode as the
+count drift above, a number that nobody was checking. It now reports the tracer that exists,
+and there is a third state for the case that was previously invisible.
+
+**What this pass did not do.** The evaluation corpus is generated by this repository: one
+renderer, one layout, four vendors, all AED, and the offline parser's patterns are written
+against the captions that renderer prints. §5 now says so. That bounds every accuracy figure
+in this file to *"correct on the format it was built for"*, and no amount of re-reading the
+source changes it. Scoring real invoices is the most valuable measurement still missing, and
+it is the next thing worth doing here.
