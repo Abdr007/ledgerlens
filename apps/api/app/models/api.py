@@ -244,4 +244,8 @@ class HealthResponse(BaseModel):
     environment: str
     database: Literal["up", "down"]
     llm_mode: str
-    langfuse: Literal["enabled", "disabled"]
+    #: `enabled` — the Langfuse exporter is built and receiving calls.
+    #: `disabled` — no keys configured; the local log sink is the whole story.
+    #: `unavailable` — keys are configured but the client could not be built, so
+    #: nothing is being exported. Previously indistinguishable from `enabled`.
+    langfuse: Literal["enabled", "disabled", "unavailable"]

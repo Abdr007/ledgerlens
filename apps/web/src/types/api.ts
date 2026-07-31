@@ -227,7 +227,8 @@ export interface Health {
   environment: string;
   database: "up" | "down";
   llm_mode: string;
-  langfuse: "enabled" | "disabled";
+  /** `unavailable` means keys are configured but the exporter failed to build. */
+  langfuse: "enabled" | "disabled" | "unavailable";
 }
 
 /** The six stages, in pipeline order, with the labels the UI renders. */
