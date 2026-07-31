@@ -92,6 +92,9 @@ export interface AnomalyQueueProps {
   loading: boolean;
   onResolve: (id: string, action: "approve" | "reject") => Promise<void>;
   onInspect?: (documentId: string) => void;
+  /** Why the last decision did not apply. Shown above the queue it refers to. */
+  notice?: string | null;
+  onDismissNotice?: () => void;
 }
 
 export function AnomalyQueue({
@@ -99,6 +102,8 @@ export function AnomalyQueue({
   loading,
   onResolve,
   onInspect,
+  notice,
+  onDismissNotice,
 }: AnomalyQueueProps) {
   const [pending, setPending] = React.useState<Record<string, boolean>>({});
 
@@ -129,6 +134,27 @@ export function AnomalyQueue({
           ) : null
         }
       />
+
+      {/* Sits above the queue rather than in a corner toast: the sentence is about
+          these rows, and the row the reviewer just acted on has already left. */}
+      {notice ? (
+        <div
+          role="status"
+          className="flex items-start gap-3 border-l-2 border-warn bg-warn/[0.07] px-5 py-3 text-[13px] text-warn/90"
+        >
+          <span className="flex-1">{notice}</span>
+          {onDismissNotice ? (
+            <button
+              type="button"
+              onClick={onDismissNotice}
+              aria-label="Dismiss"
+              className="shrink-0 text-warn/60 transition-colors hover:text-warn"
+            >
+              <X className="size-4" />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
         {loading ? (
