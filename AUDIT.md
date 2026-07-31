@@ -290,6 +290,12 @@ move. It could not be reproduced during this audit, because every probe found th
 already warm — `/health` answered in **0.45 s**. A cold Render instance was never observed
 here, so the number is reported as inherited, not as measured by this document.
 
+The Render service was **suspended on 2026-07-31**, after the Space had been verified and
+not before. It now answers `503 Service Suspended`, which is the intended end state: the
+old host is off rather than quietly still serving a URL that documentation no longer names.
+The Space was re-checked immediately afterwards — 11 of 11 — because "the new thing works"
+and "the new thing works once the old thing is gone" are different claims.
+
 ### What the migration exposed
 
 Seven defects. Four are in deployment tooling and three are in the running service;
