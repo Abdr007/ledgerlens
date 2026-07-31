@@ -147,6 +147,7 @@ async def extract_document(
                 max_tokens=settings.llm_max_output_tokens,
                 images=images,
                 purpose="extract" if repair_index == 0 else "extract_repair",
+                disable_thinking=True,
             )
         )
         usages.append(result.usage)

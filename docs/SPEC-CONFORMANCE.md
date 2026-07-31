@@ -161,7 +161,7 @@ schema, pipeline stage, prompt, validation rule or test behaviour changed.
 
 ## §3/§4 Stack and zero-cost deployment
 
-Next.js 15 + TS + Tailwind + shadcn/ui + Framer Motion · FastAPI 3.12 in Docker · Claude Sonnet 4.6
+Next.js 15 + TS + Tailwind + shadcn/ui + Framer Motion · FastAPI 3.12 in Docker · Claude Sonnet 5
 (vision + tool use) · Claude Haiku 4.5 (routing) · Pydantic v2 + pure-Python rules · pandas + rapidfuzz +
 z-scores · Neon Postgres free · Langfuse cloud free · Vercel Hobby · **Hugging Face Docker Space as
 the API host** (see D-2) · n8n self-hosted local.

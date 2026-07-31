@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     # "stub"  -> never call the network (used by CI and the offline test suite).
     llm_mode: LlmMode = "auto"
     model_router: str = "claude-haiku-4-5"
-    model_extractor: str = "claude-sonnet-4-6"
+    model_extractor: str = "claude-sonnet-5"
     llm_timeout_s: float = 90.0
     llm_max_attempts: int = 3
     llm_max_output_tokens: int = 8_000

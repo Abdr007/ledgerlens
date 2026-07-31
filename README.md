@@ -62,7 +62,7 @@ flowchart TD
 
     subgraph LANES["③ Extraction lanes"]
         TEXT["<b>Text lane</b> — PyMuPDF<br/>free, instant, zero tokens"]
-        VISION["<b>Vision lane</b> — Claude Sonnet 4.6<br/>scans, tables, handwriting"]
+        VISION["<b>Vision lane</b> — Claude Sonnet 5<br/>scans, tables, handwriting"]
     end
 
     TEXT --> EXTRACT
