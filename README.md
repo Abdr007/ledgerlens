@@ -3,9 +3,9 @@
 **Invoices in, verified data out — or a human review queue. Never a confident guess.**
 
 [![CI](https://github.com/Abdr007/ledgerlens/actions/workflows/ci.yml/badge.svg)](https://github.com/Abdr007/ledgerlens/actions/workflows/ci.yml)
-![tests](https://img.shields.io/badge/tests-187-c8ff2f)
-![field accuracy](https://img.shields.io/badge/field%20accuracy-100%25%20(63%2F63)-c8ff2f)
-![anomaly F1](https://img.shields.io/badge/anomaly%20F1-1.00%20(n%3D1)-c8ff2f)
+![tests](https://img.shields.io/badge/tests-187-4fd1a5)
+![field accuracy](https://img.shields.io/badge/field%20accuracy-100%25%20(63%2F63)-4fd1a5)
+![anomaly F1](https://img.shields.io/badge/anomaly%20F1-1.00%20(n%3D1)-4fd1a5)
 ![mypy](https://img.shields.io/badge/mypy-strict-8b7cf6)
 ![python](https://img.shields.io/badge/python-3.12-6b7299)
 ![licence](https://img.shields.io/badge/licence-MIT-6b7299)

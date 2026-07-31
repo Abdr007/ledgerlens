@@ -71,7 +71,7 @@ Terraform module — see D-2.
 
 | Requirement | Status |
 |---|---|
-| Near-black navy base `#0a0e1a`, glassmorphism panels, single electric accent cyan `#22d3ee` | **Deviation — see D-1 below.** Near-black *violet* base `#07060d`, chamfered solid panels, single electric accent acid-lime `#c8ff2f`. `globals.css` `@theme` tokens; `.panel` utility |
+| Near-black navy base `#0a0e1a`, glassmorphism panels, single electric accent cyan `#22d3ee` | **Deviation — see D-1 below.** Near-black *slate-teal* base `#050b0a`, chamfered solid panels, single electric accent verdigris `#4fd1a5` with copper `#b87333` for structure. `globals.css` `@theme` tokens; `.panel` utility |
 | Inter/Geist font, subtle grid background, glow on active elements, **no rainbow gradients** | Geist via `next/font`; `.backdrop-grid`; `.glow-*`; no rainbow gradients — one accent hue only |
 | Full-width drag-drop hero | `components/pipeline/dropzone.tsx` |
 | 6-stage pipeline **Ingest → Route → Extract → Validate → Screen → Ledger**; nodes pulse while active, green on pass, red on flag | `components/pipeline/pipeline-rail.tsx` |
@@ -85,28 +85,46 @@ Terraform module — see D-2.
 ### D-1 — Deliberate deviation from the §6 palette
 
 **What changed.** The spec names an exact palette: navy `#0a0e1a`, cyan `#22d3ee`,
-glassmorphism (backdrop blur), rounded panels. LedgerLens instead ships
-violet-black `#07060d`, acid-lime `#c8ff2f`, solid chamfered panels and a
-scanline texture — no blur anywhere.
+glassmorphism (backdrop blur), rounded panels. LedgerLens instead ships slate-teal
+black `#050b0a`, verdigris `#4fd1a5` with copper `#b87333` for structural work,
+solid chamfered panels and an engine-turned texture — no blur anywhere.
 
-**Why.** This build is one of three portfolio projects shipped in the same
-window. The spec's literal palette is a widely-used one, and it collided
-token-for-token with a sibling project (six identical hex values). Two
-portfolio pieces that look like the same template damage both; a reviewer reads
-it as one template reskinned, not two systems built. Departing from a *styling*
-instruction to preserve the artefact's actual purpose is the right trade.
-Approved by the project owner before implementation.
+**Why, first time.** This build is one of three portfolio projects shipped in the
+same window, and the spec's literal palette collided token-for-token with a
+sibling (six identical hex values). Two portfolio pieces that look like the same
+template damage both. Departing from a *styling* instruction to preserve the
+artefact's purpose is the right trade. Approved by the project owner before
+implementation.
 
-**What was preserved.** Every stated *intent* behind §6 holds:
+**Why, second time.** The first answer to that collision was violet-black with an
+acid-lime accent — which solved the collision and landed on the most-generated
+look in the field. Neon on near-black is the house style of every AI-built
+dashboard, so the page was distinctive against its sibling and generic against
+everything else.
+
+The palette now comes from the subject rather than from a mood. This product's
+promise is a record that cannot be forged or rewritten, and that claim already has
+a visual language: security printing, assay marks, engraved instruments, oxidised
+metal. Verdigris and copper are the colours of metal that has proven it is old.
+The texture is engine-turning — the guilloché interference pattern used on
+banknotes precisely because it is difficult to reproduce.
+
+One §6 intent is now *inverted on purpose*, which is a deviation inside a
+deviation and is recorded as such: **verification is quiet and exception is loud.**
+A dashboard that shouts green for success trains the eye to skip the only state
+that needs a person, so `DONE` is the most muted colour on the page and
+`NEEDS REVIEW` carries the sodium flare.
+
+**What was preserved.** Every other stated *intent* behind §6 holds:
 
 | §6 intent | Held? |
 |---|---|
-| Near-black base, dark mission-control feel | Yes — `#07060d` is darker than `#0a0e1a` |
-| Exactly ONE electric accent | Yes — `#c8ff2f`, used nowhere decoratively |
+| Near-black base, dark mission-control feel | Yes — `#050b0a` is darker than `#0a0e1a` |
+| Exactly ONE electric accent | Yes — verdigris `#4fd1a5`. Copper is structure (rules, chamfer ticks, the seal), never state |
 | No rainbow gradients | Yes — no multi-hue gradient exists in the stylesheet |
 | Subtle grid background | Yes — `.backdrop-grid`, unchanged in structure |
 | Glow on active elements | Yes — `.glow-accent/pass/warn/flag` |
-| Geist / Geist Mono typography | Yes — unchanged, now mono-forward for numerals |
+| Geist / Geist Mono typography | Yes, and extended: Instrument Serif on the hero and panel titles only. The page stays mono-dominant; the serif is the human voice among machine output |
 | Semantic state colours stay semantic | Yes — pass/warn/flag are state-only, never decoration |
 
 **Scope.** Presentation layer only: `globals.css` tokens plus the class names
