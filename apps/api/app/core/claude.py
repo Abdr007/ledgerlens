@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, runtime_checkable
 
 from app.core.errors import UpstreamUnavailableError
@@ -63,9 +64,38 @@ _FALLBACK_PRICING: Final[tuple[float, float]] = (3.00, 15.00)
 _OUTER_TIMEOUT_MARGIN_S: Final = 5.0
 
 
-def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
-    """Cost of a single call, in USD, from the cached price table."""
-    price_in, price_out = _PRICING.get(model, _FALLBACK_PRICING)
+#: Promotional rates, with the last day each applies (inclusive).
+#:
+#: A launch discount written into `_PRICING` as though it were the standard rate
+#: under-reports cost from the moment it expires, and nothing fails to say so — the
+#: number just quietly becomes wrong, in the direction that flatters the project.
+#: Keeping the end date beside the rate means the table corrects itself on the
+#: right morning instead of depending on someone's diary.
+_INTRODUCTORY_PRICING: Final[dict[str, tuple[tuple[float, float], date]]] = {
+    # Claude Sonnet 5 launch pricing; reverts to the $3.00 / $15.00 above.
+    "claude-sonnet-5": ((2.00, 10.00), date(2026, 8, 31)),
+}
+
+
+def _rate(model: str, on: date) -> tuple[float, float]:
+    promotional = _INTRODUCTORY_PRICING.get(model)
+    if promotional is not None and on <= promotional[1]:
+        return promotional[0]
+    return _PRICING.get(model, _FALLBACK_PRICING)
+
+
+def estimate_cost_usd(
+    model: str, input_tokens: int, output_tokens: int, *, on: date | None = None
+) -> float:
+    """Cost of a single call, in USD, at the rate in force when it was made.
+
+    `on` defaults to today because this figure is computed at call time and then
+    persisted, per document and per trace: what belongs in the ledger is what the
+    call cost when it happened, not what the same call would cost if repeated
+    later. Tests pass it explicitly so the arithmetic never depends on the day the
+    suite runs.
+    """
+    price_in, price_out = _rate(model, on or datetime.now(UTC).date())
     return (input_tokens * price_in + output_tokens * price_out) / 1_000_000
 
 
