@@ -231,15 +231,24 @@ export interface Health {
   langfuse: "enabled" | "disabled" | "unavailable";
 }
 
-/** The six stages, in pipeline order, with the labels the UI renders. */
+/**
+ * The six stages, in pipeline order, with the labels the UI renders.
+ *
+ * Stages that run on a model name it via `model` rather than spelling it out.
+ * The names used to be written into the blurbs, which meant the rail went on
+ * claiming "Sonnet 4.6" after the extractor moved to Sonnet 5 — on the same
+ * screen as the header badge, which reads `/v1/stats` and said so correctly.
+ * A fact that appears twice needs one source, and this is the one that was wrong.
+ */
 export const PIPELINE_STAGES: ReadonlyArray<{
   id: PipelineStage;
   label: string;
   blurb: string;
+  model?: "router" | "extractor";
 }> = [
   { id: "ingest", label: "Ingest", blurb: "SHA-256 hash · idempotency key" },
-  { id: "route", label: "Route", blurb: "Haiku 4.5 · cost-aware routing" },
-  { id: "extract", label: "Extract", blurb: "Sonnet 4.6 · schema-forced tool use" },
+  { id: "route", label: "Route", blurb: "cost-aware routing", model: "router" },
+  { id: "extract", label: "Extract", blurb: "schema-forced tool use", model: "extractor" },
   { id: "validate", label: "Validate", blurb: "Pure Python · never an LLM" },
   { id: "screen", label: "Screen", blurb: "Duplicates · z-scores · terms" },
   { id: "ledger", label: "Ledger", blurb: "Postgres · append-only audit" },

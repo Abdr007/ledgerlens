@@ -160,8 +160,26 @@ function usePacedReveal(stages: StageProgress[] | null, stepMs: number): StagePr
   }, [stages, revealed]);
 }
 
+/** The stage's own description, prefixed with the model running it when known. */
+function stageBlurb(
+  definition: (typeof PIPELINE_STAGES)[number],
+  models: { router: string; extractor: string } | null | undefined,
+): string {
+  if (!definition.model || !models) return definition.blurb;
+  const name = definition.model === "router" ? models.router : models.extractor;
+  return name ? `${name} · ${definition.blurb}` : definition.blurb;
+}
+
 export interface PipelineRailProps {
   stages: StageProgress[] | null;
+  /**
+   * The models actually in use, from `/v1/stats`. Named here rather than written
+   * into the stage blurbs so the rail cannot contradict the header badge, which
+   * reads the same field — it did exactly that after the extractor moved to
+   * Sonnet 5. Omitted while stats are still loading, in which case the stage
+   * shows what it does without claiming which model does it.
+   */
+  models?: { router: string; extractor: string } | null;
   /** Shown under the rail while a document is in flight. */
   caption?: string | null;
   /** Minimum time each finished stage stays visible before the next reveals. */
@@ -178,6 +196,7 @@ export interface PipelineRailProps {
  */
 export function PipelineRail({
   stages,
+  models,
   caption,
   stepMs = 340,
   className,
@@ -217,7 +236,7 @@ export function PipelineRail({
                     {definition.label}
                   </p>
                   <p className="mt-0.5 text-[11px] leading-snug text-ink-faint">
-                    {definition.blurb}
+                    {stageBlurb(definition, models)}
                   </p>
                   <div className="h-4">
                     <AnimatePresence mode="wait">

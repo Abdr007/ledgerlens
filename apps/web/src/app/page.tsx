@@ -290,6 +290,9 @@ export default function MissionControl() {
           <div className="bevel-sm flex flex-col justify-center border border-hairline bg-black/25 p-5">
             <PipelineRail
               stages={active?.stages ?? null}
+              models={
+                stats ? { router: stats.router_model, extractor: stats.extractor_model } : null
+              }
               caption={
                 active
                   ? active.is_terminal
