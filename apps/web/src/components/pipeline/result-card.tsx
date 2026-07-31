@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, CheckCircle2, FileText, Wrench } from "lucide-react";
 import * as React from "react";
 
+import { HashSeal } from "@/components/ui/hash-seal";
 import { Badge, Panel, PanelHeader } from "@/components/ui/primitives";
 import { cn, formatDate, formatMoney } from "@/lib/utils";
 import type { Extraction } from "@/types/api";
@@ -89,11 +90,14 @@ function TypedField({
 export function ResultCard({
   extraction,
   filename,
+  hash,
   animate = true,
   className,
 }: {
   extraction: Extraction;
   filename?: string;
+  /** The document's SHA-256, which the seal is drawn from. */
+  hash?: string | null;
   animate?: boolean;
   className?: string;
 }) {
@@ -133,6 +137,30 @@ export function ResultCard({
           )
         }
       />
+
+      {/* The seal sits with the fields it certifies, not in a corner. It is drawn
+          from this document's SHA-256, so it is the same figure every time these
+          bytes are ingested and a different one for any other file — which is the
+          idempotency guarantee made visible rather than asserted. */}
+      <div className="flex items-center gap-4 px-5 pt-4">
+        <HashSeal hash={hash} size={72} tone={extraction.is_valid ? "accent" : "warn"} />
+        <div className="min-w-0">
+          <p className="eyebrow">Content seal</p>
+          <p className="mt-1 font-mono text-[11px] leading-relaxed text-ink-faint">
+            {hash ? (
+              <>
+                <span className="text-ink-muted">{hash.slice(0, 16)}</span>
+                {hash.slice(16, 32)}…
+              </>
+            ) : (
+              "not yet hashed"
+            )}
+          </p>
+          <p className="mt-1 text-[11px] leading-snug text-ink-faint">
+            Drawn from the digest. The same file always seals identically.
+          </p>
+        </div>
+      </div>
 
       <div className="px-5 pb-2 pt-3">
         {fields.map((field, index) => (
