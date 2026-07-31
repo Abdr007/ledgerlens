@@ -14,7 +14,10 @@ import type { VendorSpend } from "@/types/api";
  * imply the vendors are different *kinds* of thing rather than the same measure
  * at different magnitudes, and would break the single-accent rule.
  */
-const BAR_FILL = "#c8ff2f";
+// Recharts renders to SVG attributes and cannot read a CSS custom property,
+// so the palette has to be restated here. These are `--color-accent` and
+// `--color-ink-muted` from globals.css; if those move, move these with them.
+const BAR_FILL = "#4fd1a5";
 
 /**
  * Recharts clones the element passed to `content` and injects the tooltip props,
@@ -82,9 +85,9 @@ export function VendorChart({
                 tickLine={false}
                 axisLine={false}
                 tickFormatter={shorten}
-                tick={{ fill: "#9a94b4", fontSize: 10 }}
+                tick={{ fill: "#9aa39c", fontSize: 10 }}
               />
-              <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(200,255,47,0.06)" }} />
+              <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(79,209,165,0.07)" }} />
               <Bar dataKey="total" radius={[0, 0, 0, 0]} maxBarSize={14}>
                 {data.map((entry, index) => (
                   <Cell
