@@ -49,6 +49,16 @@ class TraceContext:
 class Tracer(Protocol):
     """Sink for completed LLM calls."""
 
+    @property
+    def mode(self) -> str:
+        """Which sink this actually is — `"langfuse"` or `"local"`.
+
+        Mirrors `ClaudeClient.mode`, and exists for the same reason: whether the
+        real exporter was built is a fact about the running process, not about
+        configuration, and `/health` has no other way to tell the two apart.
+        """
+        ...
+
     def on_llm_call(
         self,
         context: TraceContext,
@@ -65,6 +75,10 @@ class Tracer(Protocol):
 
 class LocalTracer:
     """Structured-log sink. Always active; the DB row is written by the pipeline."""
+
+    @property
+    def mode(self) -> str:
+        return "local"
 
     def on_llm_call(
         self,
@@ -116,6 +130,10 @@ class LangfuseTracer:
         )
         self._local = LocalTracer()
         logger.info("langfuse_tracer_enabled", extra={"host": settings.langfuse_host})
+
+    @property
+    def mode(self) -> str:
+        return "langfuse"
 
     def on_llm_call(
         self,
