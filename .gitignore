@@ -24,7 +24,18 @@ tsconfig.tsbuildinfo
 # Generated artifacts
 eval/testset/**/*.pdf
 eval/testset/**/*.png
-eval/results/
+
+# `eval/results/` is deliberately NOT ignored: README and AUDIT cite these reports
+# by path, and a document that points at a file nobody can open is worse than one
+# that quotes no evidence at all. They are ~6 KB of JSON and they are the record.
+#
+# The consequence to know about: `make eval` rewrites the dated report, so a local
+# run leaves the tree dirty, and `scripts/deploy_space.py` refuses a dirty tree by
+# design. Commit the run or restore the file before deploying.
+#
+# Real documents never reach these reports — the private population contributes
+# scores under a positional alias, never a filename or a verbatim value. See
+# `_public_document_entries` in `eval/run_eval.py`.
 
 # Real invoices, scored locally and never published. A real invoice carries a
 # vendor, an address, a tax number, amounts and the recipient's own details — and

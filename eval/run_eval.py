@@ -252,6 +252,39 @@ def _population_scores(results: list[DocumentResult]) -> dict[str, tuple[int, in
     return scores
 
 
+def _public_document_entries(results: list[DocumentResult]) -> list[dict[str, Any]]:
+    """Per-document rows for the persisted report.
+
+    The report is committed; the private documents deliberately are not. A real
+    invoice's *filename* can name a supplier, and `mismatches` quote extracted
+    values verbatim — so for the real population both are withheld and the row
+    carries scores under a positional alias instead. Nothing is lost in practice:
+    the console printed the full detail during the run, which is where a mismatch
+    gets debugged, and that output is not written anywhere.
+    """
+    entries: list[dict[str, Any]] = []
+    private_seen = 0
+    for result in results:
+        public = result.population == "generated"
+        if not public:
+            private_seen += 1
+        entries.append(
+            {
+                "filename": result.filename if public else f"private-{private_seen:02d}",
+                "population": result.population,
+                "status": result.status,
+                "lane": result.lane,
+                "field_accuracy": round(result.accuracy, 4),
+                "line_items": f"{result.line_items_matched}/{result.line_items_expected}",
+                "expected_anomalies": sorted(result.expected_anomalies),
+                "observed_anomalies": sorted(result.observed_anomalies),
+                "unreadable_in_mode": result.unreadable,
+                "mismatches": result.mismatches if public else [],
+            }
+        )
+    return entries
+
+
 def _blocked_expectations(
     results: list[DocumentResult],
     manifest: list[dict[str, Any]],
@@ -262,6 +295,9 @@ def _blocked_expectations(
     Returns `{filename: {anomaly_type, ...}}`. These are excluded from recall so
     the metric reflects detector quality rather than which lanes were configured.
     """
+    # Every scored document, both populations. Keyed on filename because that is
+    # what a DocumentResult carries; a private entry with a labelled anomaly used
+    # to miss this map entirely and raise KeyError below.
     truth_by_file = {entry["filename"]: entry for entry in manifest}
     readable_names = {r.filename for r in results if not r.unreadable}
     blocked: dict[str, set[str]] = {}
@@ -457,7 +493,9 @@ async def run_eval(*, regenerate: bool, keep_ledger: bool) -> dict[str, Any]:
     # against an original the run could not read, and a per-vendor z-score needs a
     # minimum number of readable priors before it is even computed. Counting those
     # as misses would measure the absent vision model, not the detector.
-    blocked = _blocked_expectations(results, manifest, settings.min_history_for_zscore)
+    blocked = _blocked_expectations(
+        results, manifest + private, settings.min_history_for_zscore
+    )
 
     true_positive = sum(len(r.expected_anomalies & r.observed_anomalies) for r in readable)
     false_positive = sum(len(r.observed_anomalies - r.expected_anomalies) for r in readable)
@@ -561,7 +599,17 @@ async def run_eval(*, regenerate: bool, keep_ledger: bool) -> dict[str, Any]:
         "overall_field_accuracy": round(overall, 4),
         "line_item_accuracy": round(line_accuracy, 4),
         "anomaly": {
-            "blocked_by_mode": {name: sorted(kinds) for name, kinds in blocked.items()},
+            # Keyed on filename, so a private document would be named here too.
+            "blocked_by_mode": {
+                name: sorted(kinds)
+                for name, kinds in blocked.items()
+                if name in {r.filename for r in results if r.population == "generated"}
+            },
+            "blocked_by_mode_private": sum(
+                len(kinds)
+                for name, kinds in blocked.items()
+                if name not in {r.filename for r in results if r.population == "generated"}
+            ),
             "precision": round(precision, 4),
             "recall": round(recall, 4),
             "f1": round(f1, 4),
@@ -577,20 +625,7 @@ async def run_eval(*, regenerate: bool, keep_ledger: bool) -> dict[str, Any]:
             "total": round(total_cost, 6),
             "per_document": round(total_cost / len(results), 6) if results else 0,
         },
-        "per_document": [
-            {
-                "filename": r.filename,
-                "status": r.status,
-                "lane": r.lane,
-                "field_accuracy": round(r.accuracy, 4),
-                "line_items": f"{r.line_items_matched}/{r.line_items_expected}",
-                "expected_anomalies": sorted(r.expected_anomalies),
-                "observed_anomalies": sorted(r.observed_anomalies),
-                "unreadable_in_mode": r.unreadable,
-                "mismatches": r.mismatches,
-            }
-            for r in results
-        ],
+        "per_document": _public_document_entries(results),
     }
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
