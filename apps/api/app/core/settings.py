@@ -37,6 +37,19 @@ class Settings(BaseSettings):
     db_pool_size: int = 5
     db_max_overflow: int = 5
     db_statement_timeout_ms: int = 15_000
+    # Whether this process may create and harden its own schema.
+    #
+    # True keeps the clone-and-run story: one environment variable, no migration
+    # step. It also requires the connection to *own* the tables — and ownership is
+    # exactly the privilege that permits `ALTER TABLE audit_log DISABLE TRIGGER`,
+    # which defeats the append-only guarantee this product is partly sold on
+    # (AUDIT.md §4c, Residual 1).
+    #
+    # Set false in production and point `DATABASE_URL` at a role with DML rights
+    # and nothing else. Boot then verifies the schema instead of building it, and
+    # refuses to start against an incomplete one rather than failing later with a
+    # permission error from somewhere less obvious.
+    db_manage_schema: bool = True
 
     # ---- Claude -----------------------------------------------------------
     anthropic_api_key: SecretStr | None = None

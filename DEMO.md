@@ -146,17 +146,29 @@ UPDATE audit_log SET payload = '{}' WHERE id = 1;
 > always choose not to honour it. Enforced by a trigger, it survives someone with `psql`
 > and a bad afternoon. That is the difference between a feature and a control.
 
-If they push — and a good interviewer will — concede the boundary before they find it:
+If they push — and a good interviewer will — you get to give the better answer:
 
-> It stops `DELETE`. It does not stop an owner disabling the trigger first, and this
-> service connects as the table owner because it creates its own schema on boot. So the
-> honest claim is that the application cannot rewrite history, not that nobody can. The
-> fix is two roles — one that owns and migrates, one that only reads and writes — and I
-> haven't applied it because it costs the clone-and-run property. It's written up as a
-> residual in AUDIT.md rather than left for someone to find.
+> A trigger stops `DELETE`. It does not stop an owner turning the trigger off first, so
+> the question is what the service connects *as*. It connects as `ledgerlens_app`, which
+> has `SELECT`, `INSERT` and `UPDATE` and nothing else — no `DELETE`, no ownership. The
+> schema is applied separately by a role the running service doesn't hold. So even if
+> this connection string leaked, it could not rewrite a single audit record.
 
-Volunteering that is worth more than the control itself. It is the same instinct the
-product is built on: state what is verified, and name what is not.
+That was a genuine finding during the audit, and for a while it was written up as an
+accepted residual rather than fixed. `scripts/grant_app_role.py` closes it, and it does
+not stop at granting — it reconnects as the new role and *tries* all three attacks,
+because a privilege boundary nobody tested is a privilege boundary nobody has:
+
+```
+proving the boundary as ledgerlens_app:
+  PASS  disable the append-only trigger  refused: must be owner of table
+  PASS  delete an audit record           refused: permission denied for table
+  PASS  delete a document                refused: permission denied for table
+  PASS  can still read the ledger        32 documents
+```
+
+The cost is one command, once, on a production deploy. `DB_MANAGE_SCHEMA` still defaults
+to `true`, so `make up && make seed && make dev` needs no migration step.
 
 ### 6 · Upload the same file twice (45s)
 
@@ -177,7 +189,7 @@ Drag the exact same PDF in again. It returns immediately, no reprocessing, same 
 | Field-level accuracy | **100.0%** (63/63) |
 | Line-item accuracy | **100.0%** (23/23) |
 | Anomaly precision / recall / F1 | **100% / 100% / 1.00** |
-| Tests | **141**, real PostgreSQL, 0 skipped |
+| Tests | **142**, real PostgreSQL, 0 skipped |
 | Live latency | avg **101 ms**, p95 **134 ms** |
 
 Say the scope out loud before they ask:

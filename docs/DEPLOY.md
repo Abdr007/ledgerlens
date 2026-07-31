@@ -107,18 +107,59 @@ what production runs. `test_space_variables_validate_against_settings` builds a 
 `Settings` from it, so a value production would reject fails a test rather than a remote
 build.
 
-**Secrets are set by hand, once.** Space → **Settings** → **Variables and secrets** →
-**New secret**:
+### The database credential is not the owner's
+
+Production connects as `ledgerlens_app`, which holds `SELECT`, `INSERT` and `UPDATE` —
+the complete set the request path uses — and nothing else. No `DELETE`, no `TRUNCATE`, no
+ownership, no `ALTER`.
+
+That matters because a trigger stops `DELETE` but does not stop
+`ALTER TABLE audit_log DISABLE TRIGGER` first, and **ownership is exactly the privilege
+that permits it**. The service used to hold ownership, because it creates its own schema
+on boot. Two statements from any leak of `DATABASE_URL` and the append-only guarantee was
+gone. AUDIT.md §4c defect 7.
+
+On a fresh database, once:
+
+```bash
+cd apps/api
+DATABASE_URL='<owner url>' python scripts/grant_app_role.py --migrate
+```
+
+It applies the schema as the owner, creates the role, grants exactly those rights, and
+then reconnects **as the new role** and tries to disable the trigger, delete an audit
+record and delete a document — all three must be refused. The resulting connection URL is
+written to `apps/api/.env.app` (gitignored) rather than printed, so it never reaches a
+terminal scrollback.
+
+Set that URL as the Space's `DATABASE_URL`, and keep `DB_MANAGE_SCHEMA=false` — which
+`SPACE_VARIABLES` already does. Boot then *verifies* the schema instead of building it,
+and refuses to start against an incomplete one rather than failing later on a permission
+error from somewhere less obvious.
+
+Local development is unaffected: `DB_MANAGE_SCHEMA` defaults to `true`, so
+`make up && make seed && make dev` still needs no migration step. Admin scripts that
+genuinely need ownership — `seed_hosted.py --reset`, which `TRUNCATE`s — are run with the
+owner URL, by a human.
+
+### Secrets
+
+**Set by hand, once.** Space → **Settings** → **Variables and secrets** → **New secret**:
 
 | Name | Value |
 |---|---|
-| `DATABASE_URL` | the Neon **pooled** connection string, including `?sslmode=require` |
+| `DATABASE_URL` | the **`ledgerlens_app`** URL from `apps/api/.env.app` above — pooled, `?sslmode=require`. Not the owner's |
 | `ANTHROPIC_API_KEY` | `sk-ant-…`. Leave unset and the deterministic offline engine runs |
 | `LANGFUSE_PUBLIC_KEY` | Langfuse → Settings → API Keys. Optional |
 | `LANGFUSE_SECRET_KEY` | same. Optional |
 
 They are never in the image, the repo, or a build log.
 
+> **Set secrets through the API, not the form.** The Space's secret form silently
+> mangled a connection string containing a query string — the application received
+> literally `sslmode=require` and crash-looped on a pydantic validation error. The
+> identical value set via `HfApi().add_space_secret(...)` worked first time.
+>
 > **Without `DATABASE_URL` the Space crash-loops, it does not degrade.** `/health` reports
 > `degraded` when the database *goes away*, but a process that starts without one exits
 > before serving anything — `wait_for_database` exhausts its retries and `lifespan` raises.

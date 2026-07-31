@@ -167,7 +167,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # A serverless database may be suspended; give it a chance to wake before
     # touching the schema, so a cold boot is a slow boot rather than a crash.
     await wait_for_database(engine)
-    await init_schema(engine)
+    await init_schema(engine, manage=settings.db_manage_schema)
     # A previous process may have died mid-document; do not leave those rows
     # spinning in the UI for ever.
     await recover_stale_documents()

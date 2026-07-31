@@ -63,6 +63,11 @@ SPACE_VARIABLES: Final[dict[str, str]] = {
     # another origin from driving this API with a visitor's browser.
     "ALLOWED_ORIGINS": "https://ledgerlens-jet.vercel.app",
     "ENVIRONMENT": "prod",
+    # Production connects as `ledgerlens_app`, which holds SELECT/INSERT/UPDATE and
+    # nothing else — no ownership, so it cannot disable the audit log's append-only
+    # trigger (AUDIT.md §4c, Residual 1). The schema is applied separately, by the
+    # owning role, via `scripts/grant_app_role.py --migrate`.
+    "DB_MANAGE_SCHEMA": "false",
     "LOG_LEVEL": "INFO",
     "LANGFUSE_HOST": "https://cloud.langfuse.com",
     # How many proxies the platform actually puts in front of the container.

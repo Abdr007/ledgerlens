@@ -33,7 +33,7 @@ TEST_DATABASE_URL='postgresql+asyncpg://…-pooler….neon.tech/ledgerlens_test?
 |---|---|---|---|
 | **a** | `ruff` + `mypy` pass with zero issues | `make lint typecheck` | **PASS** |
 | **b** | `eslint` + `tsc --noEmit` pass with zero issues | `make web-lint web-typecheck` | **PASS** |
-| **c** | `pytest` green, incl. validation math, idempotent re-upload, duplicate detection, and status transitions under two concurrent requests | `make test` | **PASS** — 141 passed |
+| **c** | `pytest` green, incl. validation math, idempotent re-upload, duplicate detection, and status transitions under two concurrent requests | `make test` | **PASS** — 142 passed |
 | **d** | End-to-end: uploading a document returns validated structured data and the UI animates through all stages | live run, §4 below | **PASS** (text lane) · **PENDING KEY** (vision lane) |
 | **e** | Planted duplicate raises a **HIGH**-severity anomaly with an explanation | `make seed`; `test_planted_duplicate_raises_a_high_severity_anomaly` | **PASS** |
 | **f** | `README.md` with mermaid diagram, local dev, and a step-by-step free deploy | [README.md](./README.md) | **PASS**, with one deliberate deviation — the spec asked for Cloud Run *and* Spaces *and* a Terraform module; one host is deployed and the other two are deleted rather than published untested. Recorded as **D-2** in [SPEC-CONFORMANCE](./docs/SPEC-CONFORMANCE.md), and §4c below |
@@ -103,11 +103,11 @@ A headless browser was not available on this machine, so the browser devtools co
 not opened directly. Open <http://localhost:3000> and check it in one keystroke; every
 class of problem that would appear there is covered by a gate above.
 
-### (c) Tests — 141, against real PostgreSQL
+### (c) Tests — 142, against real PostgreSQL
 
 ```
 $ make test
-141 passed
+142 passed
 ```
 
 The suite **provisions its own database**. If `ledgerlens_test` does not exist, it is
@@ -119,7 +119,7 @@ warrants it: the PostgreSQL *server* itself being unreachable.
 | Module | Tests | Covers |
 |---|---|---|
 | `test_validation.py` | 32 | Every deterministic rule with hand-computed expectations; money parsing across 11 formats; date parsing; schema forbids invented fields; nulls allowed everywhere |
-| `test_security.py` | 47 | Magic-byte whitelist; declared-type spoofing; size and empty-file limits; filename sanitisation (traversal, control chars, bidi override); PDF page and pixel bombs; secret redaction across 10 credential shapes; prompt-injection resistance; reserved-`LogRecord`-key safety plus a static sweep of every `extra=` in shipped code; the deploy variables validated against the settings schema, including a wildcard-CORS and proxy-count assertion; blank secrets treated as absent |
+| `test_security.py` | 48 | Magic-byte whitelist; declared-type spoofing; size and empty-file limits; filename sanitisation (traversal, control chars, bidi override); PDF page and pixel bombs; secret redaction across 10 credential shapes; prompt-injection resistance; reserved-`LogRecord`-key safety plus a static sweep of every `extra=` in shipped code; the deploy variables validated against the settings schema, including a wildcard-CORS and proxy-count assertion; blank secrets treated as absent |
 | `test_pipeline_integration.py` | 15 | Full pipeline on real Postgres; idempotency; **8 concurrent uploads**; **6 concurrent processors**; status-transition counts; `failed_jobs`; append-only trigger; planted duplicate; no false positives; re-screen idempotence |
 | `test_api.py` | 22 | Error envelopes; CORS headers; **server-side refusal of cross-origin writes**, with the absent-`Origin` and cross-origin-read boundaries pinned; security headers; rate limiting per IP and its isolation; typed 404/422; OpenAPI completeness |
 | `test_deploy_space.py` | 25 | The Spaces deploy contract: preflight, the generated root Dockerfile and the `.gitignore` collision that hid it, Space exclusions, no secret-shaped name in a public file, the frontmatter length rules the Hub enforces in a pre-receive hook, and each branch of the push-failure diagnosis |
@@ -292,9 +292,9 @@ here, so the number is reported as inherited, not as measured by this document.
 
 ### What the migration exposed
 
-Five defects. Four are in deployment tooling and one is in the running service; every
-one of them was found by running the thing rather than reading it, and every one of
-them passed `make audit` on the way in.
+Seven defects. Four are in deployment tooling and three are in the running service;
+every one was found by running the thing rather than reading it, and every one passed
+`make audit` on the way in.
 
 `scripts/deploy_space.py` carried two of them and had **no tests at all** — it was ported
 from a sibling project, which does test it, and the tests were not ported with it. It now
@@ -479,12 +479,12 @@ against.
 That is the general lesson from this pass, stated once: **check the behaviour you
 control, not the header something else can rewrite.**
 
-### Residual 1 — the append-only guard is beyond the *application*, not beyond its role
+### Defect 7 — the append-only guard was beyond the *application*, not beyond its role — **CLOSED**
 
 The demo line is: *"a database trigger rejects `UPDATE` and `DELETE`, so history cannot
 be rewritten even from a direct SQL session."* The first half is verified above against
-the hosted database, including the cascade from `documents`. The second half is too
-broad, and this pass found the gap:
+the hosted database, cascade included. The second half was too broad, and this pass found
+the gap:
 
 ```
 connected as     : neondb_owner
@@ -498,30 +498,49 @@ can this role disable the append-only trigger?
 
 A trigger stops `DELETE`. It does not stop `ALTER TABLE audit_log DISABLE TRIGGER`
 followed by `DELETE`, and **table ownership is exactly the privilege that permits
-that** — so anyone holding `DATABASE_URL` can erase history in two statements rather
-than one. The application holds it, which means a SQL-injection reaching this
-connection, or a leaked connection string, defeats the control that the product is
-partly sold on.
+that** — so a SQL-injection reaching this connection, or a leaked connection string,
+defeated the control that the product is partly sold on. In two statements.
 
-**Why it is like this, precisely.** The service creates its own schema on first boot —
-`init_schema` runs `create_all` plus the hardening DDL, which is what makes "no
-migration step" true and what makes a fresh Neon project work with one environment
-variable. DDL requires ownership. Ownership permits disabling triggers. The
-convenience and the weakness are the same privilege; it is a design tension, not an
-oversight, and it cannot be closed by changing application code.
+**Why it was like this.** The service creates its own schema on first boot, which is
+what makes "no migration step" true and a fresh Neon project work from one environment
+variable. DDL requires ownership. Ownership permits disabling triggers. The convenience
+and the weakness were the same privilege — a design tension rather than an oversight,
+and one no application-level change could close.
 
-**The fix is two roles, and it is not applied here.** A migration role that owns the
-tables and runs the DDL, and an application role granted only `SELECT`/`INSERT`/
-`UPDATE` on them and nothing else. The trigger then sits outside the reach of the
-credential the service actually carries, and the demo claim becomes true as stated.
-The cost is that schema creation stops being automatic, which is a real trade against
-the "clone it and run it" property the rest of this project works hard for.
+**It is closed by splitting the credential in two.** `scripts/grant_app_role.py`
+creates a `ledgerlens_app` role holding `SELECT`, `INSERT` and `UPDATE` — the complete
+set the request path uses — and nothing else. No `DELETE`, no `TRUNCATE`, no ownership,
+no `ALTER`. `DB_MANAGE_SCHEMA=false` then tells the service to *verify* the schema
+rather than build it, and to refuse to start against an incomplete one rather than fail
+later with a permission error from somewhere less obvious.
 
-Until it is applied, the honest form of the claim is: **the audit log cannot be
-rewritten by the application, and cannot be deleted by anyone who has not first taken
-ownership-level action that a database audit would show.** [DEMO.md](./DEMO.md) states
-it that way, and the `psql` receipt it offers on stage is still exactly what a viewer
-would see.
+The script does not stop at granting. It reconnects **as the new role** and attempts
+each thing the old credential could do, because a privilege boundary nobody tested is a
+privilege boundary nobody has:
+
+```
+proving the boundary as ledgerlens_app:
+  PASS  disable the append-only trigger  refused: InsufficientPrivilegeError: must be owner of table
+  PASS  delete an audit record           refused: InsufficientPrivilegeError: permission denied for table
+  PASS  delete a document                refused: InsufficientPrivilegeError: permission denied for table
+  PASS  can still read the ledger        32 documents
+```
+
+Production now runs on that credential. Verified after the switch by a **full** pipeline
+run rather than a deduplicated one (`make verify-hosted --fresh`), because a dedup would
+not have exercised `INSERT` at all: `processed · NEEDS_REVIEW · 6/6 stages audited ·
+109 ms`, then all 11 checks green. The corpus was reseeded afterwards through the same
+credential — 30 documents, avg 98 ms, p95 113 ms — so the write path is proven at volume
+and not merely on one file.
+
+**What it cost, stated plainly.** Clone-and-run is unchanged for a developer:
+`DB_MANAGE_SCHEMA` defaults to `true`, so `make up && make seed && make dev` still needs
+no migration step. A *production* deployment now has one extra command, run once. That is
+the whole price, and it buys a credential that cannot rewrite history even if it leaks.
+
+The claim is now true as originally stated, and `test_an_unmanaged_boot_refuses_an_
+incomplete_schema` pins both directions: unmanaged refuses an incomplete schema, managed
+still applies it.
 
 ### What this audit itself left behind, and what was done about it
 
@@ -541,7 +560,7 @@ options were not equivalent:
 | Option | Why not / why |
 |---|---|
 | Leave them | Zero risk, but a portfolio demo that opens on rows named `hosted-probe.jpg` |
-| `ALTER TABLE … DISABLE TRIGGER`, delete 5 rows | Possible — Residual 1 proves the role can. Rejected: rewriting audit history on the artefact whose headline claim is that audit history cannot be rewritten is not a trade worth making for cosmetics |
+| `ALTER TABLE … DISABLE TRIGGER`, delete 5 rows | Possible at the time — Defect 7 records that the credential could. Rejected: rewriting audit history on the artefact whose headline claim is that audit history cannot be rewritten is not a trade worth making for cosmetics |
 | **TRUNCATE and reseed through the API** | **Chosen.** Resetting an environment wholesale and visibly is a different act from editing a record, and it is the path `make reset` already documents |
 
 The reseed is recorded above. Final state: 32 documents, 29 `DONE`, 3 `NEEDS_REVIEW`,
@@ -722,7 +741,7 @@ from the commands printed beside them.
 | | | Command |
 |---|---|---|
 | Python source | 38 files · 7,637 lines | `find app scripts -name '*.py' \| wc -l` |
-| Python tests | 7 files · 1,900 lines · **141 tests** | `pytest -o addopts='' -q` |
+| Python tests | 7 files · 1,943 lines · **142 tests** | `pytest -o addopts='' -q` |
 | TypeScript source | 15 files · 2,686 lines | `find src -name '*.ts*'` |
 | Container image | 546 MB, non-root (uid 1000), healthcheck green | `docker build -f infra/Dockerfile .` |
 | Suppression comments | **6** `noqa` in shipped Python (each justified inline), **0** `type: ignore`, 0 in TypeScript | `grep -rn noqa app scripts` |
@@ -744,8 +763,8 @@ accuracy and cost — and are marked as such everywhere they appear: in this fil
 evaluation report JSON, and in the UI's own mode badge. Nothing in this repository reports
 an unverified result as verified.
 
-The spec is implemented as written with **two** deviations, both deliberate and both
-recorded in the conformance doc: **D-1**, the §6 colour palette, presentation-only and
+No residuals are left open. The spec is implemented as written with **two** deviations,
+both deliberate and both recorded in the conformance doc: **D-1**, the §6 colour palette, presentation-only and
 owner-approved; and **D-2**, one API host rather than three, because the two that were
 deleted had never been applied and publishing untested deployment paths next to a real one
 gives the reader no way to tell which is which.
@@ -753,12 +772,13 @@ gives the reader no way to tell which is which.
 ### What this pass found, and did not paper over
 
 The second pass was a migration, and migrations are where documentation and reality come
-apart. Five defects are in §4c, every one found by running the thing rather than reading it,
+apart. Seven defects are in §4c, every one found by running the thing rather than reading it,
 and every one invisible to `make audit` — including a deploy script that could never have
-run, a first deploy that produced a Space with no Dockerfile in it, and, worst of the five,
-a rate limit that reported itself on every response and stopped nobody. That last one had
-two passing tests over it the whole time; they built the request chain the setting expected,
-so they and the setting were wrong together.
+run, a first deploy that produced a Space with no Dockerfile in it, a rate limit that
+reported itself on every response and stopped nobody, and a credential that could switch
+off the append-only guarantee and then delete history. The rate limit had two passing tests
+over it the whole time; they built the request chain the setting expected, so they and the
+setting were wrong together. All seven are fixed.
 
 Two further findings are corrections to this document rather than to the code:
 

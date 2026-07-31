@@ -400,6 +400,49 @@ def test_a_deeper_proxy_chain_than_configured_is_reported(
         rate_limit._depth_warned.clear()
 
 
+@pytest.mark.integration
+async def test_an_unmanaged_boot_refuses_an_incomplete_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Production runs without ownership, so it must not try to build the schema.
+
+    AUDIT.md §4c Residual 1: creating the schema on boot requires DDL, DDL requires
+    table ownership, and ownership is exactly what permits
+    `ALTER TABLE audit_log DISABLE TRIGGER`. Production therefore connects as a
+    role holding `SELECT`/`INSERT`/`UPDATE` and nothing else, and verifies the
+    schema rather than building it.
+
+    Refusing loudly is the point. A service that boots against a half-built schema
+    and then fails on the first insert with a permission error is far harder to
+    diagnose than one that names, at boot, the command to run and the role to run
+    it as. Run against the real engine, with only the "is it current?" answer
+    forced — the branch under test is what happens *after* that answer is no.
+    """
+    from app.core import bootstrap
+    from app.core.db import init_engine
+    from app.core.settings import get_settings
+
+    engine = init_engine(get_settings())
+
+    async def _incomplete(_: object) -> bool:
+        return False
+
+    monkeypatch.setattr(bootstrap, "_schema_is_current", _incomplete)
+
+    with pytest.raises(bootstrap.SchemaNotManagedError, match="DB_MANAGE_SCHEMA"):
+        await bootstrap.init_schema(engine, manage=False)
+
+    # And the managed path still applies it, so the default stays clone-and-run.
+    applied: list[bool] = []
+
+    async def _record(_: object) -> None:
+        applied.append(True)
+
+    monkeypatch.setattr(bootstrap, "_apply_schema", _record)
+    await bootstrap.init_schema(engine, manage=True)
+    assert applied == [True]
+
+
 def test_space_variables_validate_against_settings() -> None:
     """Every value in `SPACE_VARIABLES` must be one `Settings` actually accepts.
 

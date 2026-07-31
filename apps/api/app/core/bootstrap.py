@@ -123,12 +123,39 @@ async def _apply_schema(connection: AsyncConnection) -> None:
         await connection.execute(text(statement))
 
 
-async def init_schema(engine: AsyncEngine) -> None:
-    """Create tables and apply hardening DDL. Idempotent and safe to run on every boot."""
+class SchemaNotManagedError(RuntimeError):
+    """The schema is incomplete and this process is not permitted to build it."""
+
+
+async def init_schema(engine: AsyncEngine, *, manage: bool = True) -> None:
+    """Create tables and apply hardening DDL. Idempotent and safe to run on every boot.
+
+    With ``manage=False`` the schema is *verified* and never modified. That is what
+    lets production run as a role holding DML rights and nothing else — no
+    ownership, and therefore no ability to `ALTER TABLE audit_log DISABLE TRIGGER`,
+    which is the one way to get around the append-only guarantee (AUDIT.md §4c,
+    Residual 1).
+
+    It refuses to start rather than continuing against a half-built schema. A
+    service that boots and then fails on the first insert with a permission error
+    is strictly harder to diagnose than one that says, at boot, exactly which
+    command to run and as whom.
+    """
     async with engine.connect() as connection:
         if await _schema_is_current(connection):
             logger.info("schema_ready", extra={"tables": len(_EXPECTED_TABLES), "applied": False})
             return
+
+    if not manage:
+        logger.error("schema_incomplete_and_unmanaged")
+        msg = (
+            "the schema is missing or incomplete and DB_MANAGE_SCHEMA is false, so this "
+            "process will not create it. Run the migration as the owning role first:\n"
+            "  DATABASE_URL='<owner url>' python scripts/grant_app_role.py --migrate\n"
+            "This is deliberate: the application runs without ownership so it cannot "
+            "disable the audit log's append-only trigger."
+        )
+        raise SchemaNotManagedError(msg)
 
     async with engine.begin() as connection:
         # Serialise concurrent boots; released automatically when the transaction ends.
