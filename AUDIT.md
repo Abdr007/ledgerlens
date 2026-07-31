@@ -744,11 +744,21 @@ until they match their own labels, so a threshold change can never silently inva
 ### One deliberate deviation: the §6 palette
 
 The spec names an exact palette (navy `#0a0e1a`, cyan `#22d3ee`, glassmorphism). This build
-ships violet-black `#07060d` with an acid-lime `#c8ff2f` accent, solid chamfered panels and a
-scanline texture instead. It is the **only** deviation in the repository, it is
-**presentation-only**, and it was approved by the project owner before implementation — the
-spec's literal palette collided token-for-token with a sibling portfolio project, and two
-pieces that look like the same template undercut both.
+ships slate-teal black `#050b0a` with a verdigris `#4fd1a5` accent and copper `#b87333` for
+structural work, solid chamfered panels and an engine-turned texture instead. It is
+**presentation-only** and was approved by the project owner — the spec's literal palette
+collided token-for-token with a sibling portfolio project, and two pieces that look like the
+same template undercut both.
+
+The palette was replaced a second time after the first answer to that collision (violet-black
+with acid-lime) proved distinctive against its sibling and generic against everything else:
+neon on near-black is the most-generated look in the field. The current one is drawn from the
+subject — security printing and oxidised metal, for a product whose promise is a record that
+cannot be forged. Full reasoning in **D-1**.
+
+It is no longer the only deviation. **D-2** is one API host rather than three and **D-3** is
+Claude Sonnet 5 on the vision lane; both are recorded in the conformance doc. The sentence
+here claimed otherwise for two revisions after D-2 landed.
 
 Every stated *intent* of §6 is preserved: near-black base, exactly one electric accent, no
 rainbow gradients, subtle grid, glow on active elements, Geist typography, state colours kept
