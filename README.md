@@ -5,7 +5,7 @@
 [![CI](https://github.com/Abdr007/ledgerlens/actions/workflows/ci.yml/badge.svg)](https://github.com/Abdr007/ledgerlens/actions/workflows/ci.yml)
 ![tests](https://img.shields.io/badge/tests-187-c8ff2f)
 ![field accuracy](https://img.shields.io/badge/field%20accuracy-100%25%20(63%2F63)-c8ff2f)
-![anomaly F1](https://img.shields.io/badge/anomaly%20F1-1.00-c8ff2f)
+![anomaly F1](https://img.shields.io/badge/anomaly%20F1-1.00%20(n%3D1)-c8ff2f)
 ![mypy](https://img.shields.io/badge/mypy-strict-8b7cf6)
 ![python](https://img.shields.io/badge/python-3.12-6b7299)
 ![licence](https://img.shields.io/badge/licence-MIT-6b7299)
@@ -161,16 +161,17 @@ make eval            # field-level accuracy + anomaly precision/recall
 make verify-hosted   # 11 checks against the running deployment
 ```
 
-`make eval` renders the labelled test set as **real** PDFs and degraded scans, pushes them
-through the **real** pipeline, and scores each field with a type-aware comparison. Ground
-truth comes from the generator's specs, never read back from the rendered document, so the
-harness scores extraction rather than grading its own homework.
+`make eval` renders the labelled test set as PDFs and degraded scans, pushes them through
+the **real** pipeline — the same routing, extraction, validation, screening and persistence
+an upload gets — and scores each field with a type-aware comparison. Ground truth comes from
+the generator's specs and is never read back from the rendered document, so a rendering bug
+cannot quietly become the answer key.
 
 | Metric | Result |
 |---|---|
 | Overall field accuracy | **100.0%** (63/63) |
 | Line-item accuracy | **100.0%** (23/23) |
-| Anomaly precision / recall / F1 | **100% / 100% / 1.00** |
+| Anomaly precision / recall / F1 | **100% / 100% / 1.00** — over **1** scorable expectation |
 | Tests | **187**, on real PostgreSQL, 0 skipped |
 | Container image | 546 MB, non-root (uid 1000), healthcheck green |
 
@@ -179,6 +180,27 @@ documents that mode can read. The other 3 are scans with no text layer: without 
 model there is nothing to read, and the pipeline correctly routed them to `NEEDS_REVIEW`
 rather than inventing fields. They are excluded from scoring and named in the report, which
 records `"mode": "offline"` so an offline figure can never be mistaken for a live one.
+
+**The anomaly figure is one true positive.** The planted duplicate is detected; the second
+labelled anomaly (`EV-GM-999.pdf`, a per-vendor amount z-score) needs vendor history that
+only the scans carry, so offline it is recorded as `blocked_by_mode` and excluded rather
+than counted as a miss. An F1 of 1.00 over a single expectation is a smoke test that the
+detector fires and explains itself — not a detection rate. Treat it as such.
+
+**The corpus is synthetic, and that bounds what any of this proves.** One renderer, one
+layout, four vendors, all AED. These numbers establish that the pipeline runs end to end and
+that extraction recovers what was printed on the page. They do **not** measure performance on
+invoices this repository did not author — different captions, column orders, multi-page
+tables, the conventions of a supplier nobody here has seen. Read 63/63 as *"correct on the
+format it was built for"*, not as an extraction benchmark. Scoring a set of real invoices is
+the most valuable measurement still missing.
+
+The harness will take them as they are: `materialise_testset` regenerates nothing while
+`labels.json` exists and every file it names is present, so a real document is added by
+dropping it in `eval/testset/` and appending an entry with `filename`, `content_type`,
+`is_scan`, `expected_anomalies` and a hand-written `ground_truth`. One caveat worth knowing
+before you spend an evening on it — `--regenerate` rewrites `labels.json` from the generator
+and would drop every hand-authored entry with it.
 
 Live, in-region pipeline latency across the deployed ledger: **avg 100 ms, p95 127 ms**
 (read from `/v1/stats`, which is also what the KPI cards show).

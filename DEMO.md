@@ -188,15 +188,25 @@ Drag the exact same PDF in again. It returns immediately, no reprocessing, same 
 |---|---|
 | Field-level accuracy | **100.0%** (63/63) |
 | Line-item accuracy | **100.0%** (23/23) |
-| Anomaly precision / recall / F1 | **100% / 100% / 1.00** |
-| Tests | **142**, real PostgreSQL, 0 skipped |
-| Live latency | avg **101 ms**, p95 **134 ms** |
+| Anomaly precision / recall / F1 | **100% / 100% / 1.00** — over **1** scorable expectation |
+| Tests | **187**, real PostgreSQL, 0 skipped |
+| Live latency | avg **100 ms**, p95 **127 ms** |
 
 Say the scope out loud before they ask:
 
 > Those are offline-baseline numbers over the seven of ten documents that mode can read.
 > The other three are scans with no text layer — the harness excludes them and names them,
 > because a mode that cannot read a document should not be scored as if it did.
+>
+> Two more things I'd rather say than be asked. The anomaly F1 is one true positive — the
+> planted duplicate — so it shows the detector fires and explains itself, not that it has a
+> detection rate. And the corpus is generated: one renderer, one layout, four vendors. That
+> makes 63/63 a statement that the pipeline is correct on the format it was built for, not
+> an extraction benchmark. Scoring real invoices is the measurement I'd add next.
+
+Volunteering both is the point. Either one, conceded after being pushed on it, costs more
+than it would have cost to lead with — and the honest version is a better story anyway: it
+says you know what your numbers mean.
 
 ---
 

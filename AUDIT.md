@@ -641,16 +641,24 @@ $ make eval
 10 labelled documents rendered as **real** PDFs and **real** degraded scans (rotation, blur,
 sensor noise, exposure shift, lossy JPEG), pushed through the **real** pipeline in dependency
 order. Ground truth is computed from the generator's specs, never read back from the rendered
-document, so the harness scores extraction rather than grading its own homework.
+document, so a rendering bug cannot quietly become the answer key.
+
+That property is worth having, but it is narrower than it sounds and the figures below should
+be read with two limits in mind. The corpus is **generated** — one renderer, one layout, four
+vendors, all AED — so it establishes that the pipeline is correct end to end and that
+extraction recovers what was printed, not that it performs on invoices this repository did not
+author. And the anomaly figures rest on **one** scorable expectation: the planted duplicate.
+The second labelled anomaly needs vendor history only the scans carry, so offline it is
+recorded as `blocked_by_mode` and excluded rather than counted as a miss.
 
 | Metric | Result |
 |---|---|
 | Overall field accuracy | **100.0%** (63/63) |
 | Line-item accuracy | **100.0%** (23/23) |
 | Per-field accuracy | 100% on all 9 fields |
-| Anomaly precision | **100.0%** |
-| Anomaly recall | **100.0%** |
-| Anomaly F1 | **100.0%** |
+| Anomaly precision | **100.0%** (1 TP, 0 FP) |
+| Anomaly recall | **100.0%** (1 TP, 0 FN, 1 excluded as `blocked_by_mode`) |
+| Anomaly F1 | **1.00** over a single expectation |
 | Mean latency | 13 ms |
 | p95 latency | 24 ms |
 | Cost | $0.00 (offline mode) |
