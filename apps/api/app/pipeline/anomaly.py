@@ -135,9 +135,19 @@ def _detect_duplicates(
         if gap_pct > Decimal(str(config.amount_tolerance_pct)):
             continue
 
-        day_gap = abs((candidate.issue_date - prior.issue_date).days)
+        # Signed for the sentence, absolute for the window: history is not ordered
+        # by issue date (a backdated invoice can be uploaded after a later one), so
+        # describing every match as "later" states the wrong direction to a human.
+        day_delta = (candidate.issue_date - prior.issue_date).days
+        day_gap = abs(day_delta)
         if day_gap > config.date_window_days:
             continue
+        if day_delta > 0:
+            when_clause = f"{day_gap} day(s) later"
+        elif day_delta < 0:
+            when_clause = f"{day_gap} day(s) earlier"
+        else:
+            when_clause = "the same day"
 
         same_number = (
             candidate.invoice_number is not None
@@ -157,7 +167,7 @@ def _detect_duplicates(
             f"{_money(prior.total)} {prior.currency or ''} on "
             f"{prior.issue_date.isoformat()}, and this invoice bills "
             f"{_money(candidate.total)} on {candidate.issue_date.isoformat()} — "
-            f"{gap_pct * 100:.2f}% apart, {day_gap} day(s) later, {number_clause}."
+            f"{gap_pct * 100:.2f}% apart, {when_clause}, {number_clause}."
         ).replace("  ", " ")
 
         findings.append(
@@ -177,6 +187,7 @@ def _detect_duplicates(
                     "vendor_similarity": float(similarity),
                     "amount_gap_pct": float(gap_pct * 100),
                     "day_gap": day_gap,
+                    "day_delta": day_delta,
                     "same_invoice_number": same_number,
                 },
                 fingerprint=f"duplicate:{prior.document_id}",

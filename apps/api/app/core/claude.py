@@ -57,6 +57,11 @@ _PRICING: Final[dict[str, tuple[float, float]]] = {
 }
 _FALLBACK_PRICING: Final[tuple[float, float]] = (3.00, 15.00)
 
+#: Seconds the outer per-attempt bound sits above the SDK's own request timeout,
+#: so the SDK's typed error is always the one that surfaces. See `RetryPolicy`
+#: construction in `LiveClaudeClient.__init__`.
+_OUTER_TIMEOUT_MARGIN_S: Final = 5.0
+
 
 def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
     """Cost of a single call, in USD, from the cached price table."""
@@ -154,8 +159,18 @@ class LiveClaudeClient:
         )
         self._policy = RetryPolicy(
             attempts=settings.llm_max_attempts,
-            timeout_s=settings.llm_timeout_s,
+            # Headroom over the SDK's own timeout above. Both bounds guard the same
+            # call, so setting them equal makes them race, and the winner decides
+            # whether the failure is retryable: the SDK raises `APITimeoutError`
+            # (listed below, retried) while `asyncio.wait_for` raises the built-in
+            # `TimeoutError` (not an APITimeoutError — the two are unrelated types).
+            # Identical deadlines therefore classified the same stall two different
+            # ways at random. The SDK now always trips first; the outer bound stays
+            # as the backstop for a client that hangs past its own deadline, and
+            # `TimeoutError` is retryable so that backstop behaves like the SDK's.
+            timeout_s=settings.llm_timeout_s + _OUTER_TIMEOUT_MARGIN_S,
             retry_on=(
+                TimeoutError,
                 anthropic.APIConnectionError,
                 anthropic.APITimeoutError,
                 anthropic.RateLimitError,

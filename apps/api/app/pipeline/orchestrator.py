@@ -25,13 +25,14 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import func, select, update
+from sqlalchemy import CursorResult, Row, false, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.claude import ClaudeClient, LlmUsage
 from app.core.db import transaction
@@ -52,7 +53,12 @@ from app.models.schemas import AnomalyFinding
 from app.models.tables import Anomaly, AuditLog, Document, Extraction, FailedJob, LlmTrace
 from app.pipeline import extract as extract_stage
 from app.pipeline import route as route_stage
-from app.pipeline.anomaly import InvoiceRecord, ScreeningConfig, screen_invoice
+from app.pipeline.anomaly import (
+    InvoiceRecord,
+    ScreeningConfig,
+    normalise_vendor,
+    screen_invoice,
+)
 
 logger = get_logger(__name__)
 
@@ -95,6 +101,71 @@ async def append_audit(
             payload=payload or {},
         )
     )
+
+
+def _to_record(row: Row[Any]) -> InvoiceRecord:
+    """Build a screening record from one joined `extractions`/`documents` row."""
+    return InvoiceRecord(
+        document_id=row.document_id,
+        vendor=row.vendor,
+        invoice_number=row.invoice_number,
+        issue_date=row.issue_date,
+        total=row.total,
+        currency=row.currency,
+        payment_terms=row.payment_terms,
+        filename=row.filename,
+    )
+
+
+def _history_predicate(candidate: InvoiceRecord, settings: Settings) -> ColumnElement[bool]:
+    """Narrow vendor history to the rows screening can actually use.
+
+    Screening used to load every extraction ever written on every upload, so the
+    cost of ingesting one document grew with the size of the ledger — invisible at
+    thirty documents, and eventually the dominant cost of an upload and an OOM on a
+    small container. Nothing about the detectors requires that: this returns a
+    predicate that is a strict *superset* of what they accept, so the matching
+    itself stays in Python, unchanged and exact.
+
+    Why each clause is safe to bound on:
+
+    * **Duplicates** only consider priors within `duplicate_date_window_days` of the
+      candidate's issue date, so the date clause is exactly their reach.
+    * **Amount z-score** and **term drift** both require
+      ``normalise_vendor(prior.vendor) == normalise_vendor(candidate.vendor)``.
+      Normalisation only lowercases, blanks legal suffixes and blanks non-alphanumerics
+      — it never introduces characters — so every token of a key is a contiguous
+      alphanumeric run of the lowercased raw name. Two vendors that normalise
+      identically therefore both contain the key's first token, and matching that
+      token cannot exclude a row Python would have accepted.
+    * **Round-number** ignores history entirely.
+
+    The token comes from `normalise_vendor`, whose output alphabet is ``[a-z0-9 ]``,
+    so it cannot carry a LIKE metacharacter.
+
+    One deliberate narrowing: a vendor whose name is *only* a legal suffix ("LLC")
+    normalises to an empty key. Previously such rows were grouped together and
+    z-scored as though they were one supplier, which manufactures false positives
+    rather than finding anything; with no usable identity they now contribute no
+    per-vendor history. The date clause still covers them for duplicate detection.
+    """
+    clauses: list[ColumnElement[bool]] = []
+
+    key = normalise_vendor(candidate.vendor)
+    if key:
+        clauses.append(func.lower(Extraction.vendor).like(f"%{key.split(' ', 1)[0]}%"))
+
+    if candidate.issue_date is not None:
+        window = timedelta(days=settings.duplicate_date_window_days)
+        clauses.append(
+            Extraction.issue_date.between(
+                candidate.issue_date - window, candidate.issue_date + window
+            )
+        )
+
+    # No vendor and no issue date: every history-consuming detector returns early on
+    # this candidate, so fetching anything would be pure waste.
+    return or_(*clauses) if clauses else false()
 
 
 def _record_traces(
@@ -259,18 +330,38 @@ class PipelineOrchestrator:
                 )
                 return
 
-            await session.execute(
-                update(Document)
-                .where(Document.id == document_id, Document.status == str(current))
-                .values(
-                    status=str(target),
-                    status_reason=reason,
-                    latency_ms=latency_ms,
-                    cost_usd=cost_usd,
-                    llm_mode=self._client.mode,
-                    updated_at=datetime.now(UTC),
-                )
+            # `AsyncSession.execute` is typed as returning `Result`, but DML always
+            # produces a `CursorResult` — which is where `rowcount` lives.
+            applied = cast(
+                CursorResult[Any],
+                await session.execute(
+                    update(Document)
+                    .where(Document.id == document_id, Document.status == str(current))
+                    .values(
+                        status=str(target),
+                        status_reason=reason,
+                        latency_ms=latency_ms,
+                        cost_usd=cost_usd,
+                        llm_mode=self._client.mode,
+                        updated_at=datetime.now(UTC),
+                    )
+                ),
             )
+            if applied.rowcount == 0:
+                # The row moved between the SELECT above and this UPDATE, so the
+                # transition never happened. Appending the audit rows anyway would
+                # leave the one table this product promises never lies asserting a
+                # state change that did not occur — and the trigger makes that
+                # permanent, because nothing can UPDATE or DELETE it afterwards.
+                logger.warning(
+                    "status_transition_lost_race",
+                    extra={
+                        "document_id": str(document_id),
+                        "from": str(current),
+                        "to": str(target),
+                    },
+                )
+                return
             await append_audit(
                 session,
                 document_id=document_id,
@@ -604,39 +695,35 @@ class PipelineOrchestrator:
         )
 
         async with transaction() as session:
-            rows = (
-                await session.execute(
-                    select(
-                        Extraction.document_id,
-                        Extraction.vendor,
-                        Extraction.invoice_number,
-                        Extraction.issue_date,
-                        Extraction.total,
-                        Extraction.currency,
-                        Extraction.payment_terms,
-                        Document.filename,
-                    ).join(Document, Document.id == Extraction.document_id)
-                )
-            ).all()
+            base = select(
+                Extraction.document_id,
+                Extraction.vendor,
+                Extraction.invoice_number,
+                Extraction.issue_date,
+                Extraction.total,
+                Extraction.currency,
+                Extraction.payment_terms,
+                Document.filename,
+            ).join(Document, Document.id == Extraction.document_id)
 
-            records = [
-                InvoiceRecord(
-                    document_id=row.document_id,
-                    vendor=row.vendor,
-                    invoice_number=row.invoice_number,
-                    issue_date=row.issue_date,
-                    total=row.total,
-                    currency=row.currency,
-                    payment_terms=row.payment_terms,
-                    filename=row.filename,
-                )
-                for row in rows
-            ]
-            candidate = next((r for r in records if r.document_id == document_id), None)
-            if candidate is None:
+            candidate_row = (
+                await session.execute(base.where(Extraction.document_id == document_id))
+            ).first()
+            if candidate_row is None:
                 return []
+            candidate = _to_record(candidate_row)
 
-            history = [r for r in records if r.document_id != document_id]
+            history = [
+                _to_record(row)
+                for row in (
+                    await session.execute(
+                        base.where(
+                            Extraction.document_id != document_id,
+                            _history_predicate(candidate, self._settings),
+                        )
+                    )
+                ).all()
+            ]
             findings = screen_invoice(candidate, history, config)
 
             for finding in findings:
