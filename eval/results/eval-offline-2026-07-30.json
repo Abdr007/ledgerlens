@@ -1,0 +1,195 @@
+{
+  "generated_at": "2026-07-29T22:24:08.657731+00:00",
+  "mode": "offline",
+  "router_model": "claude-haiku-4-5",
+  "extractor_model": "claude-sonnet-4-6",
+  "documents": 10,
+  "documents_scored": 7,
+  "documents_unreadable_in_mode": [
+    "EV-GM-002-scan.jpg",
+    "EV-GM-004-scan.jpg",
+    "EV-CE-002-scan.jpg"
+  ],
+  "field_accuracy": {
+    "vendor": 1.0,
+    "invoice_number": 1.0,
+    "issue_date": 1.0,
+    "due_date": 1.0,
+    "subtotal": 1.0,
+    "tax": 1.0,
+    "total": 1.0,
+    "currency": 1.0,
+    "payment_terms": 1.0
+  },
+  "overall_field_accuracy": 1.0,
+  "line_item_accuracy": 1.0,
+  "anomaly": {
+    "blocked_by_mode": {
+      "EV-GM-999.pdf": [
+        "amount_zscore"
+      ]
+    },
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "true_positives": 1,
+    "false_positives": 0,
+    "false_negatives": 0
+  },
+  "latency_ms": {
+    "mean": 15.6,
+    "p95": 25
+  },
+  "cost_usd": {
+    "total": 0.0,
+    "per_document": 0.0
+  },
+  "per_document": [
+    {
+      "filename": "EV-GM-001.pdf",
+      "status": "DONE",
+      "lane": "text",
+      "field_accuracy": 1.0,
+      "line_items": "5/5",
+      "expected_anomalies": [],
+      "observed_anomalies": [],
+      "unreadable_in_mode": false,
+      "mismatches": []
+    },
+    {
+      "filename": "EV-GM-002-scan.jpg",
+      "status": "NEEDS_REVIEW",
+      "lane": "vision",
+      "field_accuracy": 0.0,
+      "line_items": "0/5",
+      "expected_anomalies": [],
+      "observed_anomalies": [],
+      "unreadable_in_mode": true,
+      "mismatches": [
+        "vendor: expected 'Gulf Metals L.L.C.', got None",
+        "invoice_number: expected 'EV-GM-002', got None",
+        "issue_date: expected '2026-04-06', got None",
+        "due_date: expected '2026-05-06', got None",
+        "subtotal: expected '25173.40', got None",
+        "tax: expected '1258.67', got None",
+        "total: expected '26432.07', got None",
+        "currency: expected 'AED', got None",
+        "payment_terms: expected 'Net 30', got None"
+      ]
+    },
+    {
+      "filename": "EV-GM-003.pdf",
+      "status": "DONE",
+      "lane": "text",
+      "field_accuracy": 1.0,
+      "line_items": "5/5",
+      "expected_anomalies": [],
+      "observed_anomalies": [],
+      "unreadable_in_mode": false,
+      "mismatches": []
+    },
+    {
+      "filename": "EV-GM-004-scan.jpg",
+      "status": "NEEDS_REVIEW",
+      "lane": "vision",
+      "field_accuracy": 0.0,
+      "line_items": "0/5",
+      "expected_anomalies": [],
+      "observed_anomalies": [],
+      "unreadable_in_mode": true,
+      "mismatches": [
+        "vendor: expected 'Gulf Metals L.L.C.', got None",
+        "invoice_number: expected 'EV-GM-004', got None",
+        "issue_date: expected '2026-05-18', got None",
+        "due_date: expected '2026-06-17', got None",
+        "subtotal: expected '26911.60', got None",
+        "tax: expected '1345.58', got None",
+        "total: expected '28257.18', got None",
+        "currency: expected 'AED', got None",
+        "payment_terms: expected 'Net 30', got None"
+      ]
+    },
+    {
+      "filename": "EV-NA-001.pdf",
+      "status": "DONE",
+      "lane": "text",
+      "field_accuracy": 1.0,
+      "line_items": "3/3",
+      "expected_anomalies": [],
+      "observed_anomalies": [],
+      "unreadable_in_mode": false,
+      "mismatches": []
+    },
+    {
+      "filename": "EV-CE-002-scan.jpg",
+      "status": "NEEDS_REVIEW",
+      "lane": "vision",
+      "field_accuracy": 0.0,
+      "line_items": "0/2",
+      "expected_anomalies": [],
+      "observed_anomalies": [],
+      "unreadable_in_mode": true,
+      "mismatches": [
+        "vendor: expected 'Cedar Print House', got None",
+        "invoice_number: expected 'EV-CE-002', got None",
+        "issue_date: expected '2026-06-11', got None",
+        "due_date: expected '2026-06-11', got None",
+        "subtotal: expected '1809.60', got None",
+        "tax: expected '90.48', got None",
+        "total: expected '1900.08', got None",
+        "currency: expected 'AED', got None",
+        "payment_terms: expected 'Due on receipt', got None"
+      ]
+    },
+    {
+      "filename": "EV-AU-101.pdf",
+      "status": "DONE",
+      "lane": "text",
+      "field_accuracy": 1.0,
+      "line_items": "3/3",
+      "expected_anomalies": [],
+      "observed_anomalies": [],
+      "unreadable_in_mode": false,
+      "mismatches": []
+    },
+    {
+      "filename": "EV-AU-102.pdf",
+      "status": "NEEDS_REVIEW",
+      "lane": "text",
+      "field_accuracy": 1.0,
+      "line_items": "3/3",
+      "expected_anomalies": [
+        "duplicate"
+      ],
+      "observed_anomalies": [
+        "duplicate"
+      ],
+      "unreadable_in_mode": false,
+      "mismatches": []
+    },
+    {
+      "filename": "EV-CP-901.pdf",
+      "status": "NEEDS_REVIEW",
+      "lane": "text",
+      "field_accuracy": 1.0,
+      "line_items": "2/2",
+      "expected_anomalies": [],
+      "observed_anomalies": [],
+      "unreadable_in_mode": false,
+      "mismatches": []
+    },
+    {
+      "filename": "EV-GM-999.pdf",
+      "status": "DONE",
+      "lane": "text",
+      "field_accuracy": 1.0,
+      "line_items": "2/2",
+      "expected_anomalies": [
+        "amount_zscore"
+      ],
+      "observed_anomalies": [],
+      "unreadable_in_mode": false,
+      "mismatches": []
+    }
+  ]
+}
