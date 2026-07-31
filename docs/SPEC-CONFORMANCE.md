@@ -10,12 +10,50 @@ Each row is verified in `AUDIT.md`. Nothing here is optional.
 | 1 | Drag-and-drop upload → POST `/v1/documents`; **SHA-256 file hash = idempotency key** (same file twice → same record, no double processing) | `routers/documents.py`, `core/files.py`, `pipeline/orchestrator.py` |
 | 2 | **Routing gate — Claude Haiku 4.5**: digital-text PDF vs scanned/photo + doc type (invoice / receipt / contract). Cost-aware model routing | `pipeline/route.py` |
 | 3a | **Text lane** — PyMuPDF embedded text. Free, instant, zero tokens | `pipeline/textlane.py` |
-| 3b | **Vision lane** — Claude Sonnet 4.6 vision reads scans, tables, handwriting | `pipeline/extract.py` |
+| 3b | **Vision lane** — Claude Sonnet 4.6 vision reads scans, tables, handwriting — **Deviation, see D-3.** The lane runs Claude Sonnet 5 | `pipeline/extract.py` |
 | 4 | **Structured extraction** — Claude *tool use* + Pydantic v2. Schema-forced. Nulls allowed, **invention forbidden**. Failed validation → error fed back → **max 2 self-correction retries** | `pipeline/extract.py` |
 | 5 | **Deterministic validation (pure Python — never an LLM)**: line items sum, subtotal+tax=total, 5% UAE VAT tolerance, date sanity. Fail → `NEEDS_REVIEW`, never auto-commit | `pipeline/validate.py` |
 | 6 | **Anomaly engine (pandas, explainable)**: fuzzy duplicates (rapidfuzz, vendor + amount within 1% + date within 7d), per-vendor amount z-score > 2, unusual payment terms, round-number bias. Every flag carries **severity + plain-English reason** | `pipeline/anomaly.py` |
 | 7 | **Ledger — Postgres**: `documents`, `extractions`, `anomalies`, `audit_log` (append-only), `failed_jobs`. `UNIQUE(file_hash)` + transactions everywhere | `models/tables.py`, `core/db.py` |
 | 8 | Mission-control UI · Langfuse observability on every LLM call · n8n automation showcase | `apps/web/`, `core/tracing.py`, `automation/n8n/` |
+
+### D-3 — Claude Sonnet 5 on the vision lane, not Sonnet 4.6
+
+**Spec §2 stage 3b** names Claude Sonnet 4.6 as the extractor. The lane now runs
+`claude-sonnet-5`; the routing gate is unchanged on Claude Haiku 4.5.
+
+**Why.** Sonnet 5 supersedes 4.6 in the same tier and the same price band, and is
+materially stronger on exactly this lane's work — reading tables and degraded
+scans. A spec that pins a model version is really specifying a capability: a
+vision-capable, tool-use-capable model in the Sonnet tier, chosen because Opus
+would be wasteful for transcription. That intent is better served by the current
+model than by the one that happened to be current when the spec was written, and
+version pins age in a way capability requirements do not.
+
+**What this cost.** One real behavioural difference, handled rather than absorbed.
+Omitting the `thinking` parameter meant *no thinking* on Sonnet 4.6 and means
+*adaptive thinking* from Sonnet 5. Left alone that would have been a silent
+change of two things this project measures: `max_tokens` caps thinking and output
+together, so a long think can starve the `tool_use` block and route a readable
+document to review for no reason; and thinking bills as output tokens, moving
+cost-per-document for no accuracy gain on a transcription task. The extraction
+lane therefore asks for thinking off explicitly (`LlmRequest.disable_thinking`),
+which restores the 4.6 behaviour exactly. The usual objection — that models reach
+for tools less with thinking disabled — does not apply here, because `tool_choice`
+is pinned to a single tool and the call is forced either way.
+
+**What was preserved.** Everything the stage is actually for. Extraction is still
+schema-forced through pinned tool use with no prose path; the deterministic
+`Decimal` layer, not the model, is still what verifies the arithmetic; and
+anything failing verification still routes to review rather than the ledger. The
+model name is a setting (`MODEL_EXTRACTOR`), so this is a configuration change
+with a documented reason, not a rewrite.
+
+**What must be re-measured.** Sonnet 5 tokenizes roughly 30% higher than 4.6 for
+the same text, so token counts, cost-per-document and latency from the 4.6 era do
+not transfer. The first live run is the new baseline, not a comparison against the
+old numbers — and every report is stamped with the model and mode that produced
+it, so the two cannot be confused.
 
 ## §5 Repository layout — must match exactly
 
