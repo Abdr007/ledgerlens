@@ -195,12 +195,16 @@ tables, the conventions of a supplier nobody here has seen. Read 63/63 as *"corr
 format it was built for"*, not as an extraction benchmark. Scoring a set of real invoices is
 the most valuable measurement still missing.
 
-The harness will take them as they are: `materialise_testset` regenerates nothing while
-`labels.json` exists and every file it names is present, so a real document is added by
-dropping it in `eval/testset/` and appending an entry with `filename`, `content_type`,
-`is_scan`, `expected_anomalies` and a hand-written `ground_truth`. One caveat worth knowing
-before you spend an evening on it — `--regenerate` rewrites `labels.json` from the generator
-and would drop every hand-authored entry with it.
+The harness takes them, and takes them **out of version control**. Drop real documents in
+`eval/testset/private/` with a hand-written `labels.json` beside them and `make eval` scores
+them as a second population, reported separately — the two are never averaged, because one
+figure spanning documents this repository rendered and documents it did not would describe
+neither. Everything in that directory is gitignored, which is not tidiness: a real invoice
+carries a vendor, an address, a tax number and the recipient's own details, and `labels.json`
+restates all of it in plaintext, so committing the labels would publish the contents even
+where the document itself is ignored. See
+[`eval/testset/private/README.md`](./eval/testset/private/README.md) for the shape and for
+how to write ground truth that does not make a correct extraction look like a failure.
 
 Live, in-region pipeline latency across the deployed ledger: **avg 100 ms, p95 127 ms**
 (read from `/v1/stats`, which is also what the KPI cards show).

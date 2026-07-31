@@ -162,6 +162,9 @@ class DocumentResult:
     observed_anomalies: set[str]
     mismatches: list[str] = field(default_factory=list)
     unreadable: bool = False
+    #: "generated" (this repository rendered it) or "real" (it did not). Scored
+    #: separately, because one number over both would describe neither.
+    population: str = "generated"
 
     @property
     def accuracy(self) -> float:
@@ -201,6 +204,52 @@ def materialise_testset(*, force: bool) -> list[dict[str, Any]]:
 
     LABELS_PATH.write_text(json.dumps(manifest, indent=2))
     return manifest
+
+
+PRIVATE_DIR = TESTSET_DIR / "private"
+PRIVATE_LABELS = PRIVATE_DIR / "labels.json"
+
+
+def load_private_manifest() -> list[dict[str, Any]]:
+    """Real documents, scored from outside version control.
+
+    The generated corpus establishes that the pipeline is correct on the format it
+    was built for. It cannot say anything about invoices this repository did not
+    author — one renderer, one layout, and the offline parser's patterns written
+    against the captions that renderer prints.
+
+    A real invoice cannot be committed to answer that. It carries a vendor, an
+    address, a tax number, line items and the recipient's own details, and this
+    repository is public; `labels.json` would publish the contents in plaintext
+    even where the file itself is ignored. So real documents live here, outside
+    git, and are scored as a **separate population**. Averaging them together with
+    the generated set would produce a single number describing neither.
+
+    Absent directory means absent population — `make eval` stays reproducible for
+    anyone who clones this.
+    """
+    if not PRIVATE_LABELS.exists():
+        return []
+    entries: list[dict[str, Any]] = json.loads(PRIVATE_LABELS.read_text())
+    missing = [e["filename"] for e in entries if not (PRIVATE_DIR / e["filename"]).exists()]
+    if missing:
+        raise SystemExit(
+            f"{PRIVATE_LABELS} references files that are not present: {', '.join(missing)}"
+        )
+    return entries
+
+
+def _population_scores(results: list[DocumentResult]) -> dict[str, tuple[int, int, int]]:
+    """(correct_fields, total_fields, documents) per population."""
+    scores: dict[str, tuple[int, int, int]] = {}
+    for result in results:
+        correct, total, docs = scores.get(result.population, (0, 0, 0))
+        scores[result.population] = (
+            correct + result.correct_fields,
+            total + result.total_fields,
+            docs + 1,
+        )
+    return scores
 
 
 def _blocked_expectations(
@@ -267,6 +316,9 @@ async def run_eval(*, regenerate: bool, keep_ledger: bool) -> dict[str, Any]:
     configure_logging("ERROR")
 
     manifest = materialise_testset(force=regenerate)
+    private = load_private_manifest()
+    documents = [(TESTSET_DIR, entry, "generated") for entry in manifest]
+    documents += [(PRIVATE_DIR, entry, "real") for entry in private]
     engine = init_engine(settings)
     await init_schema(engine)
     if not keep_ledger:
@@ -275,7 +327,10 @@ async def run_eval(*, regenerate: bool, keep_ledger: bool) -> dict[str, Any]:
     client = get_claude_client()
     orchestrator = PipelineOrchestrator(client=client, settings=settings, tracer=get_tracer())
 
-    print(f"\nLedgerLens evaluation — {len(manifest)} labelled documents")
+    banner = f"{len(manifest)} generated"
+    if private:
+        banner += f" + {len(private)} real"
+    print(f"\nLedgerLens evaluation — {banner} labelled documents")
     print(f"mode={client.mode}  router={settings.model_router}  extractor={settings.model_extractor}")
     print("=" * 100)
 
@@ -283,8 +338,8 @@ async def run_eval(*, regenerate: bool, keep_ledger: bool) -> dict[str, Any]:
     results: list[DocumentResult] = []
     started = time.perf_counter()
 
-    for entry in manifest:
-        payload = (TESTSET_DIR / entry["filename"]).read_bytes()
+    for source_dir, entry, population in documents:
+        payload = (source_dir / entry["filename"]).read_bytes()
         outcome = await orchestrator.ingest(
             data=payload,
             filename=entry["filename"],
@@ -369,6 +424,7 @@ async def run_eval(*, regenerate: bool, keep_ledger: bool) -> dict[str, Any]:
                 observed_anomalies=set(flags),
                 mismatches=mismatches,
                 unreadable=unreadable,
+                population=population,
             )
         )
 
@@ -442,6 +498,16 @@ async def run_eval(*, regenerate: bool, keep_ledger: bool) -> dict[str, Any]:
     print(f"  {'OVERALL':16} {overall:7.1%}  {correct_fields}/{total_fields}")
     print(f"  {'line items':16} {line_accuracy:7.1%}  {matched_lines}/{total_lines}")
 
+    populations = _population_scores(readable)
+    if len(populations) > 1:
+        # Deliberately not averaged. A combined figure over documents this
+        # repository rendered and documents it did not would describe neither, and
+        # the real number is the one worth quoting.
+        print("\n  by population")
+        for name, (correct, total, docs) in sorted(populations.items()):
+            share = correct / total if total else 0.0
+            print(f"    {name:12} {share:7.1%}  {correct}/{total}  over {docs} document(s)")
+
     print("\nANOMALY DETECTION")
     print(f"  precision {precision:6.1%}   recall {recall:6.1%}   F1 {f1:6.1%}")
     print(
@@ -482,6 +548,15 @@ async def run_eval(*, regenerate: bool, keep_ledger: bool) -> dict[str, Any]:
         "documents": len(results),
         "documents_scored": len(readable),
         "documents_unreadable_in_mode": [r.filename for r in unreadable],
+        "populations": {
+            name: {
+                "documents": docs,
+                "correct_fields": correct,
+                "total_fields": total,
+                "field_accuracy": round(correct / total, 4) if total else 0.0,
+            }
+            for name, (correct, total, docs) in _population_scores(readable).items()
+        },
         "field_accuracy": {name: round(tallies[name].accuracy, 4) for name in SCALAR_FIELDS},
         "overall_field_accuracy": round(overall, 4),
         "line_item_accuracy": round(line_accuracy, 4),
