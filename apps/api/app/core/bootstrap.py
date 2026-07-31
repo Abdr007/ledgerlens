@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import asyncio
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import CheckConstraint, UniqueConstraint, bindparam, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
@@ -58,6 +58,27 @@ _EXPECTED_INDEXES = (
     | _DDL_INDEXES
 )
 
+# Named CHECK and UNIQUE constraints. `table.indexes` above does not include
+# these, so without them "the schema is current" was a claim about tables and
+# indexes only — while the integrity rules this project actually relies on are
+# constraints: the enum CHECKs, and `UNIQUE(document_id, fingerprint)` that stops
+# re-screening duplicating a finding. A database carrying every table and index
+# but none of those would have passed the probe, and in production
+# (`DB_MANAGE_SCHEMA=false`) nothing would ever have healed it.
+#
+# `UNIQUE(file_hash)` — the idempotency key — is already covered: it is declared
+# `unique=True, index=True`, so SQLAlchemy emits it as a named unique *index* and
+# it appears above. The one gap left is `extractions.document_id`, whose
+# column-level `unique=True` produces a constraint the metadata leaves unnamed;
+# Postgres names it `extractions_document_id_key`, but that name is the server's
+# invention rather than something declared here, so it is not asserted.
+_EXPECTED_CONSTRAINTS = frozenset(
+    constraint.name
+    for table in Base.metadata.tables.values()
+    for constraint in table.constraints
+    if isinstance(constraint, CheckConstraint | UniqueConstraint) and constraint.name is not None
+)
+
 # One statement, one round trip: everything needed to decide whether the boot can
 # skip the DDL. Counting rather than listing keeps the result tiny.
 _SCHEMA_PROBE = (
@@ -74,6 +95,10 @@ _SCHEMA_PROBE = (
             WHERE n.nspname = current_schema()
               AND c.relkind = 'i'
               AND c.relname IN :indexes)                      AS indexes_present,
+          (SELECT count(*) FROM pg_constraint c
+             JOIN pg_namespace n ON n.oid = c.connamespace
+            WHERE n.nspname = current_schema()
+              AND c.conname IN :constraints)                  AS constraints_present,
           (SELECT count(*) FROM pg_trigger
             WHERE tgname = :guard_trigger AND NOT tgisinternal) AS guard_trigger,
           (SELECT count(*) FROM pg_proc p
@@ -85,6 +110,7 @@ _SCHEMA_PROBE = (
     .bindparams(
         bindparam("tables", expanding=True),
         bindparam("indexes", expanding=True),
+        bindparam("constraints", expanding=True),
     )
     .columns()
 )
@@ -103,6 +129,7 @@ async def _schema_is_current(connection: AsyncConnection) -> bool:
             {
                 "tables": list(_EXPECTED_TABLES),
                 "indexes": list(_EXPECTED_INDEXES),
+                "constraints": list(_EXPECTED_CONSTRAINTS),
                 "guard_trigger": _GUARD_TRIGGER,
                 "guard_function": _GUARD_FUNCTION,
             },
@@ -111,6 +138,7 @@ async def _schema_is_current(connection: AsyncConnection) -> bool:
     return bool(
         row.tables_present == len(_EXPECTED_TABLES)
         and row.indexes_present == len(_EXPECTED_INDEXES)
+        and row.constraints_present == len(_EXPECTED_CONSTRAINTS)
         and row.guard_trigger == 1
         and row.guard_function == 1
     )
