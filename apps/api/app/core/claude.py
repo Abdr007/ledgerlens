@@ -28,10 +28,12 @@ from app.core.retry import RetriesExhaustedError, RetryPolicy, run_with_retry
 from app.core.settings import Settings
 
 if TYPE_CHECKING:  # pragma: no cover - typing only; the SDK is imported lazily
+    from anthropic import Omit
     from anthropic.types import (
         ContentBlockParam,
         Message,
         MessageParam,
+        ThinkingConfigDisabledParam,
         ToolChoiceToolParam,
         ToolParam,
     )
@@ -88,6 +90,10 @@ class LlmRequest:
     max_tokens: int
     images: tuple[ImageBlock, ...] = ()
     purpose: str = "unspecified"
+    # Sonnet 5 runs adaptive thinking whenever `thinking` is omitted, where Sonnet 4.6
+    # ran none. Set this on lanes that want the older, deterministic behaviour; see
+    # `LiveClaudeClient.invoke_tool` for why extraction does.
+    disable_thinking: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +206,19 @@ class LiveClaudeClient:
         tool_choice: ToolChoiceToolParam = {"type": "tool", "name": request.tool.name}
         messages: list[MessageParam] = [{"role": "user", "content": self._build_content(request)}]
 
+        # Omitting `thinking` means "no thinking" on Sonnet 4.6 but "adaptive thinking"
+        # on Sonnet 5, so the extractor asks for it off explicitly. Two reasons:
+        # `max_tokens` caps thinking and output *together*, so a long think can starve
+        # the tool_use block and drop us into the "no structured output" branch below;
+        # and thinking bills as output tokens, which moves the cost-per-document KPI for
+        # no accuracy gain on what is a transcription task — the Decimal layer, not the
+        # model, is what checks the arithmetic. The usual "models reach for tools less
+        # with thinking off" caveat does not apply here: `tool_choice` is pinned to one
+        # tool, so the call is forced either way.
+        thinking: ThinkingConfigDisabledParam | Omit = (
+            {"type": "disabled"} if request.disable_thinking else self._anthropic.omit
+        )
+
         async def _call() -> Message:
             return await self._client.messages.create(
                 model=request.model,
@@ -208,6 +227,7 @@ class LiveClaudeClient:
                 tools=tools,
                 tool_choice=tool_choice,
                 messages=messages,
+                thinking=thinking,
             )
 
         try:
