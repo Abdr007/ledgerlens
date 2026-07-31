@@ -1,44 +1,61 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------------------
-   LedgerLens — "Obsidian & Acid"
+   LedgerLens — "Instrument of record"
 
-   Deliberate deviation from the build spec's §6 palette (#0a0e1a navy + #22d3ee
-   cyan). That palette collided verbatim with a sibling portfolio project, and
-   two projects that look like the same template is worse for a portfolio than
-   one that departs from its brief. The spec's *intent* — dark mission-control,
-   ONE electric accent, restrained, no rainbow gradients — is preserved exactly;
-   only the hue family and the form language move.
+   Second identity. The first ("Obsidian & Acid") was a near-black ground with a
+   single acid-lime accent, chosen to avoid colliding with a sibling project — a
+   good reason that happened to land on the most-generated look there is. Neon on
+   black is the house style of every AI-built dashboard, so adding more glow to it
+   would have made this page *more* templated, not more futuristic.
 
-   The identity has three axes, all of which differ from the sibling:
-     hue      violet-black + acid lime, not navy + cyan
-     geometry machined bevel cuts and hard 1px edges, not soft rounded glass
-     texture  fine scanlines and corner ticks, not backdrop blur
+   The futurism here is borrowed from the subject instead. This product's promise
+   is a record that cannot be forged or rewritten, and that world already has a
+   visual language: security printing, assay marks, engraved instruments,
+   oxidised metal. Verdigris and copper are the colours of metal that has proven
+   it is old; bone is the colour of the paper such things are printed on.
+
+   Three axes, each derived from the product rather than from a mood:
+     hue       metallurgical — verdigris, copper, bone on slate-teal black
+     geometry  engraved rules and machined chamfers; no blur, no rounding
+     argument  verification is quiet, exception is loud (see --color-pass)
+
+   The inversion is the point. Most dashboards shout green for success, which
+   trains the eye to skip the only state that needs a person. Here DONE is nearly
+   silent and NEEDS REVIEW carries the sodium flare.
 --------------------------------------------------------------------------- */
 @theme {
-  --color-base: #07060d;
-  --color-base-raised: #0c0a17;
-  --color-base-sunken: #040308;
-  --color-panel: #100d1e;
-  --color-panel-top: #16122a;
+  --color-base: #050b0a;
+  --color-base-raised: #0a1614;
+  --color-base-sunken: #020605;
+  --color-panel: #0a1513;
+  --color-panel-top: #0f1f1c;
 
-  /* The single electric accent. */
-  --color-accent: #c8ff2f;
-  --color-accent-dim: #6b8f10;
-  --color-accent-glow: rgb(200 255 47 / 0.4);
+  /* Verdigris: oxidised copper, the colour of security ink and proven age.
+     Desaturated and blue-shifted on purpose — it must never read as neon. */
+  --color-accent: #4fd1a5;
+  --color-accent-dim: #2a6b56;
+  --color-accent-glow: rgb(79 209 165 / 0.34);
 
-  --color-ink: #ece9f5;
-  --color-ink-muted: #9a94b4;
-  --color-ink-faint: #625c7c;
+  /* Copper does the structural work: engraved rules, seals, chamfer ticks. */
+  --color-copper: #b87333;
+  --color-copper-dim: rgb(184 115 51 / 0.32);
 
-  /* State only — never decoration. */
-  --color-pass: #4ade80;
-  --color-flag: #ff3d6e;
-  --color-warn: #ffb703;
+  --color-ink: #e6e2d3;
+  --color-ink-muted: #9aa39c;
+  --color-ink-faint: #5d6a64;
 
-  --color-hairline: rgb(154 148 180 / 0.16);
-  --color-hairline-strong: rgb(154 148 180 / 0.3);
+  /* State only — never decoration. `pass` is deliberately the quietest colour on
+     the page: a verified document is the uninteresting outcome and must not
+     compete with the one asking for a human. */
+  --color-pass: #6f9c88;
+  --color-flag: #e2564d;
+  --color-warn: #e8a33d;
 
+  --color-hairline: rgb(154 163 156 / 0.16);
+  --color-hairline-strong: rgb(184 115 51 / 0.34);
+
+  --font-engraved: var(--font-instrument-serif), ui-serif, Georgia, serif;
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
 }
@@ -102,20 +119,33 @@ body {
   mask-image: radial-gradient(ellipse 110% 74% at 50% 0%, #000 52%, transparent 100%);
 }
 
-/* CRT-ish scanline field. Very low amplitude — it should register as texture,
-   not as an effect anyone consciously notices. */
+/* Engine-turning. The interference of two fine arcs is what guilloché is — the
+   pattern on a banknote or a share certificate, difficult to reproduce and
+   therefore used to prove a document is the original. Kept at a very low
+   amplitude: it should read as the texture of the surface, not as an effect. */
 .scanlines {
   position: fixed;
   inset: 0;
   z-index: 1;
   pointer-events: none;
-  background-image: repeating-linear-gradient(
-    0deg,
-    rgb(255 255 255 / 0.022) 0px,
-    rgb(255 255 255 / 0.022) 1px,
-    transparent 1px,
-    transparent 3px
-  );
+  background-image:
+    repeating-radial-gradient(
+      circle at 18% -10%,
+      rgb(184 115 51 / 0.028) 0 1px,
+      transparent 1px 9px
+    ),
+    repeating-radial-gradient(
+      circle at 84% 118%,
+      rgb(79 209 165 / 0.022) 0 1px,
+      transparent 1px 11px
+    );
+}
+
+/* An engraved rule: a bright hairline sitting on its own shadow, the way an
+   intaglio line sits proud of the paper. */
+.engraved {
+  border-top: 1px solid rgb(184 115 51 / 0.22);
+  box-shadow: 0 -1px 0 rgb(0 0 0 / 0.55);
 }
 
 /* --------------------------------------------------------------------------
@@ -135,7 +165,7 @@ body {
     transform 200ms ease;
 }
 .panel-hover:hover {
-  background: linear-gradient(180deg, #1a1533 0%, #120f22 100%);
+  background: linear-gradient(180deg, #142b26 0%, #0d1c19 100%);
 }
 
 /* An acid hairline along the top edge, and a machined tick in the chamfer. */
@@ -160,7 +190,7 @@ body {
   right: 0;
   width: 15px;
   height: 15px;
-  background: linear-gradient(45deg, transparent 49%, var(--color-accent) 49% 52%, transparent 52%);
+  background: linear-gradient(45deg, transparent 49%, var(--color-copper) 49% 52%, transparent 52%);
   opacity: 0.65;
 }
 
@@ -171,8 +201,8 @@ body {
   position: absolute;
   width: 9px;
   height: 9px;
-  border-color: var(--color-accent);
-  opacity: 0.5;
+  border-color: var(--color-copper);
+  opacity: 0.55;
 }
 .ticks::before {
   left: 7px;
@@ -224,6 +254,16 @@ body {
 .tabular {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
+}
+
+/* The engraved face, declared here rather than left to the generated utility.
+   Everything in this file is unlayered, and unlayered declarations beat anything
+   in `@layer utilities` — so a rule here is the one that actually lands. Used on
+   the hero and panel titles only: the page is mono-dominant, and the serif is
+   the human voice among the machine output. */
+.font-engraved {
+  font-family: var(--font-instrument-serif), ui-serif, Georgia, serif;
+  font-weight: 400;
 }
 
 /* Mono-forward: this is a ledger, so labels read as machine output. */

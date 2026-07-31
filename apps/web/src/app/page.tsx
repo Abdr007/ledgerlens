@@ -58,6 +58,8 @@ export default function MissionControl() {
   const [loading, setLoading] = React.useState(true);
 
   const [active, setActive] = React.useState<DocumentStatusResponse | null>(null);
+  /** SHA-256 of the document in flight — the seal is drawn from it. */
+  const [activeHash, setActiveHash] = React.useState<string | null>(null);
   const [uploading, setUploading] = React.useState(false);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [auditTarget, setAuditTarget] = React.useState<string | null>(null);
@@ -148,10 +150,12 @@ export default function MissionControl() {
       setUploadError(null);
       setUploading(true);
       setActive(null);
+      setActiveHash(null);
       if (pollRef.current !== null) window.clearTimeout(pollRef.current);
 
       try {
         const response = await api.uploadDocument(file);
+        setActiveHash(response.file_hash);
         if (response.duplicate) {
           setUploadError(
             `Already ingested — the SHA-256 of ${response.filename} matches an existing ` +
@@ -271,7 +275,7 @@ export default function MissionControl() {
           <div className="flex flex-col gap-4">
             <div>
               <p className="eyebrow">Ingestion edge</p>
-              <h2 className="mt-1 text-[20px] font-semibold leading-snug tracking-tight text-ink">
+              <h2 className="mt-1 font-engraved text-[30px] leading-[1.12] tracking-[-0.01em] text-ink">
                 Drop a document. Watch it clear the pipeline.
               </h2>
               <p className="mt-1.5 text-[13px] leading-relaxed text-ink-muted">
@@ -316,6 +320,7 @@ export default function MissionControl() {
               <ResultCard
                 extraction={active.extraction}
                 filename={documents.find((d) => d.id === active.document_id)?.filename}
+                hash={activeHash}
                 animate
               />
             </motion.div>
